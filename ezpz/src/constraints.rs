@@ -942,8 +942,8 @@ impl Constraint {
                 }
 
                 let rot = rotation_for_angle_kind(*expected_angle);
-                let u_hat = u * (1.0 / len_u);
-                let v_hat = v * (1.0 / len_v);
+                let u_hat = u * len_u.recip();
+                let v_hat = v * len_v.recip();
                 let rot_u_hat = rot.apply(u_hat);
                 let scale = (len_u + len_v) * 0.5;
                 let res = v_hat - rot_u_hat;
@@ -1172,8 +1172,8 @@ impl Constraint {
                 }
                 let dr_dx0 = (x0 - x1) / dist;
                 let dr_dy0 = (y0 - y1) / dist;
-                let dr_dx1 = (-x0 + x1) / dist;
-                let dr_dy1 = (-y0 + y1) / dist;
+                let dr_dx1 = -dr_dx0;
+                let dr_dy1 = -dr_dy0;
 
                 row0.extend(
                     [
@@ -1215,8 +1215,8 @@ impl Constraint {
                 }
                 let df_dpx = (px - qx) / dist;
                 let df_dpy = (py - qy) / dist;
-                let df_dqx = -(px - qx) / dist;
-                let df_dqy = -(py - qy) / dist;
+                let df_dqx = -df_dpx;
+                let df_dqy = -df_dpy;
                 let df_dd = -1.0;
                 row0.extend(
                     [
@@ -1410,15 +1410,19 @@ impl Constraint {
                 }
 
                 // Calculate derivatives.
+                let inv_len0_x = (x0 - x1) / len0;
+                let inv_len0_y = (y0 - y1) / len0;
+                let inv_len1_x = (-x2 + x3) / len1;
+                let inv_len1_y = (-y2 + y3) / len1;
                 let pds = PartialDerivatives4Points {
-                    x0: (x0 - x1) / len0,
-                    y0: (y0 - y1) / len0,
-                    x1: (-x0 + x1) / len0,
-                    y1: (-y0 + y1) / len0,
-                    x2: (-x2 + x3) / len1,
-                    y2: (-y2 + y3) / len1,
-                    x3: (x2 - x3) / len1,
-                    y3: (y2 - y3) / len1,
+                    x0: inv_len0_x,
+                    y0: inv_len0_y,
+                    x1: -inv_len0_x,
+                    y1: -inv_len0_y,
+                    x2: inv_len1_x,
+                    y2: inv_len1_y,
+                    x3: -inv_len1_x,
+                    y3: -inv_len1_y,
                 };
                 let jvars = pds.jvars(line0, line1);
                 row0.extend(jvars.as_slice());
@@ -2412,7 +2416,7 @@ fn pds_from_symmetric(
         (4.0 * dy2 * dot - (2.0 * sx * dx + 4.0 * sy * dy) * r) / r2,
     ];
     let dax = [1.0 * (dx2 - dy2) / r, 2.0 * dx * dy / r];
-    let day = [2.0 * dx * dy / r, 1.0 * (-dx2 + dy2) / r];
+    let day = [dax[1], -dax[0]];
     let dbx = [-1.0, 0.0];
     let dby = [0.0, -1.0];
 
