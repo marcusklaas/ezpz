@@ -578,7 +578,7 @@ impl Constraint {
                 let qx = current_assignments[layout.index_of(q.id_x())];
                 let qy = current_assignments[layout.index_of(q.id_y())];
                 let d = current_assignments[layout.index_of(d.id)];
-                let residual = -d + (libm::pow(px - qx, 2.0) + libm::pow(py - qy, 2.0)).sqrt();
+                let residual = -d + ((px - qx) * (px - qx) + (py - qy) * (py - qy)).sqrt();
                 *residual0 = residual;
             }
             Constraint::VerticalDistance(p0, p1, expected_distance) => {
@@ -688,8 +688,8 @@ impl Constraint {
                 // For numerical stability and simpler derivatives, we compare the squared
                 // distances. The residual is zero if the distances are equal.
                 // R = distance(center, start)² - distance(center, end)²
-                let dist0_sq = libm::pow(start_x - cx, 2.0) + libm::pow(start_y - cy, 2.0);
-                let dist1_sq = libm::pow(end_x - cx, 2.0) + libm::pow(end_y - cy, 2.0);
+                let dist0_sq = (start_x - cx) * (start_x - cx) + (start_y - cy) * (start_y - cy);
+                let dist1_sq = (end_x - cx) * (end_x - cx) + (end_y - cy) * (end_y - cy);
 
                 *residual0 = dist0_sq - dist1_sq;
             }
@@ -891,20 +891,10 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let res0 = ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
-                    * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip()
-                    - libm::cos(
-                        d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                            .sqrt()
-                            .recip(),
-                    );
-                let res1 = ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
-                    * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip()
-                    - libm::sin(
-                        d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                            .sqrt()
-                            .recip(),
-                    );
+                let res0 = ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy)) * r2.recip()
+                    - libm::cos(d * r2.sqrt().recip());
+                let res1 = ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx)) * r2.recip()
+                    - libm::sin(d * r2.sqrt().recip());
 
                 *residual0 = res0;
                 *residual1 = res1;
@@ -1728,9 +1718,9 @@ impl Constraint {
                     return;
                 }
                 let dpx = (-ay + qy) * (py - qy).recip();
-                let dpy = (ay - qy) * (px - qx) * libm::pow(py - qy, -2.0);
+                let dpy = (ay - qy) * (px - qx) * ((py - qy) * (py - qy)).recip();
                 let dqx = (ay - py) * (py - qy).recip();
-                let dqy = -(ay - py) * (px - qx) * libm::pow(py - qy, -2.0);
+                let dqy = -(ay - py) * (px - qx) * ((py - qy) * (py - qy)).recip();
                 let dax = 1.0;
                 let day = (-px + qx) * (py - qy).recip();
                 row0.extend([
@@ -2060,98 +2050,43 @@ impl Constraint {
 
                 // Then calculate the partial derivatives.
                 // Taken from SymPy, see ezpz-sympy.
-                let r0dax = ((bx - cx)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                // Precompute powers of r2 for the expressions below
+                let r2_sqrt = r2.sqrt();
+                let r2_sq = r2 * r2;
+                let r2_cubed = r2_sq * r2;
+                let r2_pow_5_2 = r2_sq * r2_sqrt; // r2^(5/2)
+                let r2_pow_7_2 = r2_cubed * r2_sqrt; // r2^(7/2)
+                let r2_pow_9_2 = r2_sq * r2_sq * r2_sqrt; // r2^(9/2)
+                let r0dax = ((bx - cx) * r2_pow_7_2
                     - 2.0
                         * (ax - cx)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    - d * (ax - cx)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::sin(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r0day = ((by - cy)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                        * r2_pow_5_2
+                    - d * (ax - cx) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r0day = ((by - cy) * r2_pow_7_2
                     - 2.0
                         * (ay - cy)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    - d * (ay - cy)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::sin(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r0dbx = (ax - cx) * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip();
-                let r0dby = (ay - cy) * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip();
-                let r0dcx = (libm::pow(
-                    libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                    7_f64 / 2.0,
-                ) * (-ax - bx + 2.0 * cx)
+                        * r2_pow_5_2
+                    - d * (ay - cy) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r0dbx = (ax - cx) * r2.recip();
+                let r0dby = (ay - cy) * r2.recip();
+                let r0dcx = (r2_pow_7_2 * (-ax - bx + 2.0 * cx)
                     + 2.0
                         * (ax - cx)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    + d * (ax - cx)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::sin(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r0dcy = (libm::pow(
-                    libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                    7_f64 / 2.0,
-                ) * (-ay - by + 2.0 * cy)
+                        * r2_pow_5_2
+                    + d * (ax - cx) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r0dcy = (r2_pow_7_2 * (-ay - by + 2.0 * cy)
                     + 2.0
                         * (ay - cy)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    + d * (ay - cy)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::sin(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
+                        * r2_pow_5_2
+                    + d * (ay - cy) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
                 row0.extend([
                     JacobianVar {
                         id: id_ax,
@@ -2178,101 +2113,36 @@ impl Constraint {
                         partial_derivative: r0dcy,
                     },
                 ]);
-                let r1dax = ((by - cy)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                let r1dax = ((by - cy) * r2_pow_7_2
                     - 2.0
                         * (ax - cx)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    + d * (ax - cx)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::cos(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r1day = ((-bx + cx)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                        * r2_pow_5_2
+                    + d * (ax - cx) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r1day = ((-bx + cx) * r2_pow_7_2
                     - 2.0
                         * (ay - cy)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    + d * (ay - cy)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::cos(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r1dbx =
-                    (-ay + cy) * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip();
-                let r1dby = (ax - cx) * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0)).recip();
-                let r1dcx = ((ay - by)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                        * r2_pow_5_2
+                    + d * (ay - cy) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r1dbx = (-ay + cy) * r2.recip();
+                let r1dby = (ax - cx) * r2.recip();
+                let r1dcx = ((ay - by) * r2_pow_7_2
                     + 2.0
                         * (ax - cx)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    - d * (ax - cx)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::cos(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
-                let r1dcy = ((-ax + bx)
-                    * libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        7_f64 / 2.0,
-                    )
+                        * r2_pow_5_2
+                    - d * (ax - cx) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
+                let r1dcy = ((-ax + bx) * r2_pow_7_2
                     + 2.0
                         * (ay - cy)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
-                        * libm::pow(
-                            libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                            5_f64 / 2.0,
-                        )
-                    - d * (ay - cy)
-                        * libm::pow(libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0), 3.0)
-                        * libm::cos(
-                            d * (libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0))
-                                .sqrt()
-                                .recip(),
-                        ))
-                    / libm::pow(
-                        libm::pow(ax - cx, 2.0) + libm::pow(ay - cy, 2.0),
-                        9_f64 / 2.0,
-                    );
+                        * r2_pow_5_2
+                    - d * (ay - cy) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    / r2_pow_9_2;
                 row1.extend([
                     JacobianVar {
                         id: id_ax,
@@ -2504,7 +2374,7 @@ fn pds_from_symmetric(
     let dx2 = dx * dx;
     let dy2 = dy * dy;
     let r = dx2 + dy2;
-    let r2 = libm::pow(r, 2.0);
+    let r2 = r * r;
     // Avoid div-by-zero
     if r2 < EPSILON {
         return None;
@@ -2587,7 +2457,7 @@ fn pds_for_point_line(
     // The partial derivatives of the line's components (p0 and p1)
     // are trickier. There are some shared terms, e.g. the denominator of the LHS
     // fraction.
-    let denom = libm::pow(libm::pow(-p0x + p1x, 2.0) + libm::pow(p0y - p1y, 2.0), 1.5);
+    let denom = euclid_dist * euclid_dist * euclid_dist;
     let d_p0x = {
         let lhs =
             ((-p0x + p1x) * (p0x * p1y - p0y * p1x + px * (p0y - p1y) + py * (-p0x + p1x))) / denom;
