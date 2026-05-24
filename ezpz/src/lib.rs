@@ -41,6 +41,7 @@ mod vector;
 mod warnings;
 
 const EPSILON: f64 = 1e-4;
+const EPSILON_SQ: f64 = EPSILON * EPSILON;
 
 /// Given some initial guesses, constrain them.
 /// Returns the same variables in the same order, but constrained.

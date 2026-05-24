@@ -141,3 +141,15 @@ impl Rotation2 {
         }
     }
 }
+
+/// Extension trait adding convenience methods to `f64`.
+pub(crate) trait FloatExt {
+    fn square(self) -> f64;
+}
+
+impl FloatExt for f64 {
+    #[inline(always)]
+    fn square(self) -> f64 {
+        self * self
+    }
+}

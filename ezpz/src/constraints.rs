@@ -1,9 +1,9 @@
 use crate::{
-    EPSILON,
+    EPSILON, EPSILON_SQ,
     datatypes::{inputs::*, *},
     id::Id,
     solver::Layout,
-    vector::{Rotation2, V},
+    vector::{FloatExt, Rotation2, V},
 };
 use std::f64::consts::PI;
 
@@ -578,7 +578,7 @@ impl Constraint {
                 let qx = current_assignments[layout.index_of(q.id_x())];
                 let qy = current_assignments[layout.index_of(q.id_y())];
                 let d = current_assignments[layout.index_of(d.id)];
-                let residual = -d + ((px - qx) * (px - qx) + (py - qy) * (py - qy)).sqrt();
+                let residual = -d + ((px - qx).square() + (py - qy).square()).sqrt();
                 *residual0 = residual;
             }
             Constraint::VerticalDistance(p0, p1, expected_distance) => {
@@ -627,8 +627,7 @@ impl Constraint {
                 let u = V::new(x1 - x0, y1 - y0);
                 let v = V::new(x3 - x2, y3 - y2);
 
-                let sqr_tol = EPSILON * EPSILON;
-                if (u.magnitude_squared() <= sqr_tol) || (v.magnitude_squared() <= sqr_tol) {
+                if (u.magnitude_squared() <= EPSILON_SQ) || (v.magnitude_squared() <= EPSILON_SQ) {
                     *degenerate = true;
                     return;
                 }
@@ -688,8 +687,8 @@ impl Constraint {
                 // For numerical stability and simpler derivatives, we compare the squared
                 // distances. The residual is zero if the distances are equal.
                 // R = distance(center, start)² - distance(center, end)²
-                let dist0_sq = (start_x - cx) * (start_x - cx) + (start_y - cy) * (start_y - cy);
-                let dist1_sq = (end_x - cx) * (end_x - cx) + (end_y - cy) * (end_y - cy);
+                let dist0_sq = (start_x - cx).square() + (start_y - cy).square();
+                let dist1_sq = (end_x - cx).square() + (end_y - cy).square();
 
                 *residual0 = dist0_sq - dist1_sq;
             }
@@ -752,7 +751,7 @@ impl Constraint {
                 let qy = current_assignments[layout.index_of(line.p1.id_y())];
                 let dx = qx - px;
                 let dy = qy - py;
-                if dx.abs() < EPSILON || (dx * dx + dy * dy) < EPSILON {
+                if dx.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
@@ -775,7 +774,7 @@ impl Constraint {
                 let qy = current_assignments[layout.index_of(line.p1.id_y())];
                 let dx = qx - px;
                 let dy = qy - py;
-                if dy.abs() < EPSILON || (dx * dx + dy * dy) < EPSILON {
+                if dy.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
                     // horizontal or zero-length line
                     *degenerate = true;
                     return;
@@ -884,7 +883,7 @@ impl Constraint {
                 let by = current_assignments[layout.index_of(circular_arc.end.id_y())];
                 let dx = ax - cx;
                 let dy = ay - cy;
-                let r2 = dx * dx + dy * dy;
+                let r2 = dx.square() + dy.square();
                 if r2 < EPSILON {
                     *residual0 = 0.0;
                     *residual1 = 0.0;
@@ -1364,8 +1363,7 @@ impl Constraint {
                 let u = V::new(x1 - x0, y1 - y0);
                 let v = V::new(x3 - x2, y3 - y2);
 
-                let sqr_tol = EPSILON * EPSILON;
-                if (u.magnitude_squared() <= sqr_tol) || (v.magnitude_squared() <= sqr_tol) {
+                if (u.magnitude_squared() <= EPSILON_SQ) || (v.magnitude_squared() <= EPSILON_SQ) {
                     *degenerate = true;
                     return;
                 }
@@ -1655,7 +1653,7 @@ impl Constraint {
                 let qy = current_assignments[layout.index_of(id_qy)];
                 let dx = qx - px;
                 let dy = qy - py;
-                if dx.abs() < EPSILON || (dx * dx + dy * dy) < EPSILON {
+                if dx.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
@@ -1712,7 +1710,7 @@ impl Constraint {
                 let qy = current_assignments[layout.index_of(id_qy)];
                 let dx = qx - px;
                 let dy = qy - py;
-                if dy.abs() < EPSILON || (dx * dx + dy * dy) < EPSILON {
+                if dy.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
@@ -2042,7 +2040,7 @@ impl Constraint {
                 let by = current_assignments[layout.index_of(id_by)];
                 let dx = ax - cx;
                 let dy = ay - cy;
-                let r2 = dx * dx + dy * dy;
+                let r2 = dx.square() + dy.square();
                 if r2 < EPSILON {
                     *degenerate = true;
                     return;
@@ -2371,10 +2369,10 @@ fn pds_from_symmetric(
     // Common terms that appear in the derivatives a lot.
     let dx = px - qx;
     let dy = py - qy;
-    let dx2 = dx * dx;
-    let dy2 = dy * dy;
+    let dx2 = dx.square();
+    let dy2 = dy.square();
     let r = dx2 + dy2;
-    let r2 = r * r;
+    let r2 = r.square();
     // Avoid div-by-zero
     if r2 < EPSILON {
         return None;
