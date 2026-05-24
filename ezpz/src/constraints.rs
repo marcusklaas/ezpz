@@ -780,7 +780,7 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let residual = ax - d - px - (ay - py) * (-px + qx) * (-py + qy).recip();
+                let residual = ax - d - px - (ay - py) * (-px + qx) / (-py + qy);
                 *residual0 = residual;
             }
             Constraint::Symmetric(line, a, b) => {
@@ -891,10 +891,10 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let res0 = ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy)) * r2.recip()
-                    - libm::cos(d * r2.sqrt().recip());
-                let res1 = ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx)) * r2.recip()
-                    - libm::sin(d * r2.sqrt().recip());
+                let res0 =
+                    ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy)) / r2 - libm::cos(d / r2.sqrt());
+                let res1 =
+                    ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx)) / r2 - libm::sin(d / r2.sqrt());
 
                 *residual0 = res0;
                 *residual1 = res1;
@@ -1214,10 +1214,10 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let df_dpx = (px - qx) * dist.recip();
-                let df_dpy = (py - qy) * dist.recip();
-                let df_dqx = -(px - qx) * dist.recip();
-                let df_dqy = -(py - qy) * dist.recip();
+                let df_dpx = (px - qx) / dist;
+                let df_dpy = (py - qy) / dist;
+                let df_dqx = -(px - qx) / dist;
+                let df_dqy = -(py - qy) / dist;
                 let df_dd = -1.0;
                 row0.extend(
                     [
@@ -1717,12 +1717,12 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let dpx = (-ay + qy) * (py - qy).recip();
-                let dpy = (ay - qy) * (px - qx) * ((py - qy) * (py - qy)).recip();
-                let dqx = (ay - py) * (py - qy).recip();
-                let dqy = -(ay - py) * (px - qx) * ((py - qy) * (py - qy)).recip();
+                let dpx = (-ay + qy) / (py - qy);
+                let dpy = (ay - qy) * (px - qx) / ((py - qy) * (py - qy));
+                let dqx = (ay - py) / (py - qy);
+                let dqy = -(ay - py) * (px - qx) / ((py - qy) * (py - qy));
                 let dax = 1.0;
-                let day = (-px + qx) * (py - qy).recip();
+                let day = (-px + qx) / (py - qy);
                 row0.extend([
                     JacobianVar {
                         id: id_ax,
@@ -2062,30 +2062,30 @@ impl Constraint {
                         * (ax - cx)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
                         * r2_pow_5_2
-                    - d * (ax - cx) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    - d * (ax - cx) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
                 let r0day = ((by - cy) * r2_pow_7_2
                     - 2.0
                         * (ay - cy)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
                         * r2_pow_5_2
-                    - d * (ay - cy) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    - d * (ay - cy) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r0dbx = (ax - cx) * r2.recip();
-                let r0dby = (ay - cy) * r2.recip();
+                let r0dbx = (ax - cx) / r2;
+                let r0dby = (ay - cy) / r2;
                 let r0dcx = (r2_pow_7_2 * (-ax - bx + 2.0 * cx)
                     + 2.0
                         * (ax - cx)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
                         * r2_pow_5_2
-                    + d * (ax - cx) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    + d * (ax - cx) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
                 let r0dcy = (r2_pow_7_2 * (-ay - by + 2.0 * cy)
                     + 2.0
                         * (ay - cy)
                         * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
                         * r2_pow_5_2
-                    + d * (ay - cy) * r2_cubed * libm::sin(d * r2_sqrt.recip()))
+                    + d * (ay - cy) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
                 row0.extend([
                     JacobianVar {
@@ -2118,30 +2118,30 @@ impl Constraint {
                         * (ax - cx)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
                         * r2_pow_5_2
-                    + d * (ax - cx) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    + d * (ax - cx) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
                 let r1day = ((-bx + cx) * r2_pow_7_2
                     - 2.0
                         * (ay - cy)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
                         * r2_pow_5_2
-                    + d * (ay - cy) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    + d * (ay - cy) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r1dbx = (-ay + cy) * r2.recip();
-                let r1dby = (ax - cx) * r2.recip();
+                let r1dbx = (-ay + cy) / r2;
+                let r1dby = (ax - cx) / r2;
                 let r1dcx = ((ay - by) * r2_pow_7_2
                     + 2.0
                         * (ax - cx)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
                         * r2_pow_5_2
-                    - d * (ax - cx) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    - d * (ax - cx) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
                 let r1dcy = ((-ax + bx) * r2_pow_7_2
                     + 2.0
                         * (ay - cy)
                         * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
                         * r2_pow_5_2
-                    - d * (ay - cy) * r2_cubed * libm::cos(d * r2_sqrt.recip()))
+                    - d * (ay - cy) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
                 row1.extend([
                     JacobianVar {
