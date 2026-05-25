@@ -589,8 +589,7 @@ impl Constraint {
                 let p = a.point(*p);
                 let q = a.point(*q);
                 let d = a[d.id];
-                let residual = -d + (p - q).magnitude();
-                *residual0 = residual;
+                *residual0 = -d + (p - q).magnitude();
             }
             Constraint::VerticalDistance(p0, p1, expected_distance) => {
                 let p0 = a.point(*p0);
@@ -624,13 +623,8 @@ impl Constraint {
                 *residual0 = a[*x] - a[*y];
             }
             Constraint::LinesAtAngle(line0, line1, expected_angle) => {
-                let p00 = a.point(line0.p0);
-                let p01 = a.point(line0.p1);
-                let p10 = a.point(line1.p0);
-                let p11 = a.point(line1.p1);
-
-                let u = V::new(p01.x - p00.x, p01.y - p00.y);
-                let v = V::new(p11.x - p10.x, p11.y - p10.y);
+                let u = a.point(line0.p1) - a.point(line0.p0);
+                let v = a.point(line1.p1) - a.point(line1.p0);
 
                 if (u.magnitude_squared() <= EPSILON_SQ) || (v.magnitude_squared() <= EPSILON_SQ) {
                     *degenerate = true;
@@ -741,14 +735,12 @@ impl Constraint {
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
                 let d = q - p;
-                let dx = d.x;
-                let dy = d.y;
-                if dx.abs() < EPSILON || d.magnitude_squared() < EPSILON {
+                if d.x.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
                 }
-                let residual = (a_pt.y - p.y - desired_distance) * dx - dy * (a_pt.x - p.x);
+                let residual = (a_pt.y - p.y - desired_distance) * d.x - d.y * (a_pt.x - p.x);
                 *residual0 = residual;
             }
             Constraint::HorizontalPointLineDistance(point, line, d_distance) => {
@@ -762,8 +754,7 @@ impl Constraint {
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
                 let d = q - p;
-                let dy = d.y;
-                if dy.abs() < EPSILON || d.magnitude_squared() < EPSILON {
+                if d.y.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // horizontal or zero-length line
                     *degenerate = true;
                     return;
@@ -1569,17 +1560,15 @@ impl Constraint {
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
                 let d = q - p;
-                let dx = d.x;
-                let dy = d.y;
-                if dx.abs() < EPSILON || d.magnitude_squared() < EPSILON {
+                if d.x.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
                 }
                 // Residual is scaled by dx: r = (ay - py - d) * dx - dy * (ax - px)
                 // Partial derivatives for the scaled residual:
-                let dax = -dy;
-                let day = dx;
+                let dax = -d.y;
+                let day = d.x;
                 let dpx = q.y - a_pt.y;
                 let dpy = a_pt.x - q.x;
                 let dqx = a_pt.y - p.y;
@@ -1624,8 +1613,7 @@ impl Constraint {
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
                 let d = q - p;
-                let dy = d.y;
-                if dy.abs() < EPSILON || d.magnitude_squared() < EPSILON {
+                if d.y.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // horizontal or zero-length line
                     *degenerate = true;
                     return;
@@ -1937,21 +1925,11 @@ impl Constraint {
             }
             Constraint::ArcLength(circular_arc, d) => {
                 // First, get all the variables.
-                let id_cx = circular_arc.center.id_x();
-                let id_cy = circular_arc.center.id_y();
-                let id_ax = circular_arc.start.id_x();
-                let id_ay = circular_arc.start.id_y();
-                let id_bx = circular_arc.end.id_x();
-                let id_by = circular_arc.end.id_y();
-                let cx = a[id_cx];
-                let cy = a[id_cy];
-                let ax = a[id_ax];
-                let ay = a[id_ay];
-                let bx = a[id_bx];
-                let by = a[id_by];
-                let dx = ax - cx;
-                let dy = ay - cy;
-                let r2 = dx.square() + dy.square();
+                let a = a.point(circular_arc.start);
+                let b = a.point(circular_arc.end);
+                let c = a.point(circular_arc.center);
+                let d = a - c;
+                let r2 = d.magnitude_squared();
                 if r2 < EPSILON {
                     *degenerate = true;
                     return;
@@ -1966,35 +1944,35 @@ impl Constraint {
                 let r2_pow_5_2 = r2_sq * r2_sqrt; // r2^(5/2)
                 let r2_pow_7_2 = r2_cubed * r2_sqrt; // r2^(7/2)
                 let r2_pow_9_2 = r2_sq * r2_sq * r2_sqrt; // r2^(9/2)
-                let r0dax = ((bx - cx) * r2_pow_7_2
+                let r0dax = ((b.x - c.x) * r2_pow_7_2
                     - 2.0
-                        * (ax - cx)
-                        * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
+                        * (a.x - c.x)
+                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
                         * r2_pow_5_2
-                    - d * (ax - cx) * r2_cubed * libm::sin(d / r2_sqrt))
+                    - d * (a.x - c.x) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r0day = ((by - cy) * r2_pow_7_2
+                let r0day = ((b.y - c.y) * r2_pow_7_2
                     - 2.0
-                        * (ay - cy)
-                        * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
+                        * (a.y - c.y)
+                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
                         * r2_pow_5_2
-                    - d * (ay - cy) * r2_cubed * libm::sin(d / r2_sqrt))
+                    - d * (a.y - c.y) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r0dbx = (ax - cx) / r2;
-                let r0dby = (ay - cy) / r2;
-                let r0dcx = (r2_pow_7_2 * (-ax - bx + 2.0 * cx)
+                let r0dbx = (a.x - c.x) / r2;
+                let r0dby = (a.y - c.y) / r2;
+                let r0dcx = (r2_pow_7_2 * (-a.x - b.x + 2.0 * c.x)
                     + 2.0
-                        * (ax - cx)
-                        * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
+                        * (a.x - c.x)
+                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
                         * r2_pow_5_2
-                    + d * (ax - cx) * r2_cubed * libm::sin(d / r2_sqrt))
+                    + d * (a.x - c.x) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r0dcy = (r2_pow_7_2 * (-ay - by + 2.0 * cy)
+                let r0dcy = (r2_pow_7_2 * (-a.y - b.y + 2.0 * c.y)
                     + 2.0
-                        * (ay - cy)
-                        * ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy))
+                        * (a.y - c.y)
+                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
                         * r2_pow_5_2
-                    + d * (ay - cy) * r2_cubed * libm::sin(d / r2_sqrt))
+                    + d * (a.y - c.y) * r2_cubed * libm::sin(d / r2_sqrt))
                     / r2_pow_9_2;
                 row0.extend([
                     JacobianVar {
@@ -2022,35 +2000,35 @@ impl Constraint {
                         partial_derivative: r0dcy,
                     },
                 ]);
-                let r1dax = ((by - cy) * r2_pow_7_2
+                let r1dax = ((b.y - c.y) * r2_pow_7_2
                     - 2.0
-                        * (ax - cx)
-                        * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
+                        * (a.x - c.x)
+                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
                         * r2_pow_5_2
-                    + d * (ax - cx) * r2_cubed * libm::cos(d / r2_sqrt))
+                    + d * (a.x - c.x) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r1day = ((-bx + cx) * r2_pow_7_2
+                let r1day = ((-b.x + c.x) * r2_pow_7_2
                     - 2.0
-                        * (ay - cy)
-                        * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
+                        * (a.y - c.y)
+                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
                         * r2_pow_5_2
-                    + d * (ay - cy) * r2_cubed * libm::cos(d / r2_sqrt))
+                    + d * (a.y - c.y) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r1dbx = (-ay + cy) / r2;
-                let r1dby = (ax - cx) / r2;
-                let r1dcx = ((ay - by) * r2_pow_7_2
+                let r1dbx = (-a.y + c.y) / r2;
+                let r1dby = (a.x - c.x) / r2;
+                let r1dcx = ((a.y - b.y) * r2_pow_7_2
                     + 2.0
-                        * (ax - cx)
-                        * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
+                        * (a.x - c.x)
+                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
                         * r2_pow_5_2
-                    - d * (ax - cx) * r2_cubed * libm::cos(d / r2_sqrt))
+                    - d * (a.x - c.x) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
-                let r1dcy = ((-ax + bx) * r2_pow_7_2
+                let r1dcy = ((-a.x + b.x) * r2_pow_7_2
                     + 2.0
-                        * (ay - cy)
-                        * ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx))
+                        * (a.y - c.y)
+                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
                         * r2_pow_5_2
-                    - d * (ay - cy) * r2_cubed * libm::cos(d / r2_sqrt))
+                    - d * (a.y - c.y) * r2_cubed * libm::cos(d / r2_sqrt))
                     / r2_pow_9_2;
                 row1.extend([
                     JacobianVar {
