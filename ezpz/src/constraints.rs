@@ -968,47 +968,41 @@ impl Constraint {
                 let cross_uv = u.cross_2d(v);
                 let mag_u_cubed = mag_u * mag_u * mag_u;
                 let side_sign = if *side == LineSide::Right { -1.0 } else { 1.0 };
-                let dr_du_x = side_sign * (-(u.x * cross_uv) / mag_u_cubed + v.y / mag_u);
-                let dr_du_y = side_sign * (-(u.y * cross_uv) / mag_u_cubed - v.x / mag_u);
-                let dr_dv_x = side_sign * (-u.y / mag_u);
-                let dr_dv_y = side_sign * (u.x / mag_u);
-
-                let dr_dx0 = -(dr_du_x + dr_dv_x);
-                let dr_dy0 = -(dr_du_y + dr_dv_y);
-                let dr_dx1 = dr_du_x;
-                let dr_dy1 = dr_du_y;
-                let dr_dxc = dr_dv_x;
-                let dr_dyc = dr_dv_y;
-                let dr_dr = -1.0;
+                let dr_du =
+                    (-u * (cross_uv / mag_u_cubed) + v.perp_cw() * mag_u.recip()) * side_sign;
+                let dr_dv = u.perp_ccw() * mag_u.recip() * side_sign;
+                let dr_p0 = -(dr_du + dr_dv);
+                let dr_p1 = dr_du;
+                let dr_c = dr_dv;
 
                 let coeffs = [
                     JacobianVar {
                         id: line.p0.id_x(),
-                        partial_derivative: dr_dx0,
+                        partial_derivative: dr_p0.x,
                     },
                     JacobianVar {
                         id: line.p0.id_y(),
-                        partial_derivative: dr_dy0,
+                        partial_derivative: dr_p0.y,
                     },
                     JacobianVar {
                         id: line.p1.id_x(),
-                        partial_derivative: dr_dx1,
+                        partial_derivative: dr_p1.x,
                     },
                     JacobianVar {
                         id: line.p1.id_y(),
-                        partial_derivative: dr_dy1,
+                        partial_derivative: dr_p1.y,
                     },
                     JacobianVar {
                         id: circle.center.id_x(),
-                        partial_derivative: dr_dxc,
+                        partial_derivative: dr_c.x,
                     },
                     JacobianVar {
                         id: circle.center.id_y(),
-                        partial_derivative: dr_dyc,
+                        partial_derivative: dr_c.y,
                     },
                     JacobianVar {
                         id: circle.radius.id,
-                        partial_derivative: dr_dr,
+                        partial_derivative: -1.0,
                     },
                 ];
                 row0.extend(coeffs.as_slice());
@@ -1030,11 +1024,6 @@ impl Constraint {
 
                 let u_d = d * mag_d.recip();
 
-                let dr_dax = u_d.x;
-                let dr_day = u_d.y;
-                let dr_dbx = -u_d.x;
-                let dr_dby = -u_d.y;
-
                 let (dr_dar, dr_dbr) = if *side == CircleSide::Interior {
                     if a_r > b_r { (1.0, -1.0) } else { (-1.0, 1.0) }
                 } else {
@@ -1044,11 +1033,11 @@ impl Constraint {
                 let coeffs = [
                     JacobianVar {
                         id: circle_a.center.id_x(),
-                        partial_derivative: dr_dax,
+                        partial_derivative: u_d.x,
                     },
                     JacobianVar {
                         id: circle_a.center.id_y(),
-                        partial_derivative: dr_day,
+                        partial_derivative: u_d.y,
                     },
                     JacobianVar {
                         id: circle_a.radius.id,
@@ -1056,11 +1045,11 @@ impl Constraint {
                     },
                     JacobianVar {
                         id: circle_b.center.id_x(),
-                        partial_derivative: dr_dbx,
+                        partial_derivative: -u_d.x,
                     },
                     JacobianVar {
                         id: circle_b.center.id_y(),
-                        partial_derivative: dr_dby,
+                        partial_derivative: -u_d.y,
                     },
                     JacobianVar {
                         id: circle_b.radius.id,
@@ -1085,28 +1074,25 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let dr_dx0 = (p0v.x - p1v.x) / dist;
-                let dr_dy0 = (p0v.y - p1v.y) / dist;
-                let dr_dx1 = -dr_dx0;
-                let dr_dy1 = -dr_dy0;
+                let dr_dp0 = (p0v - p1v) * dist.recip();
 
                 row0.extend(
                     [
                         JacobianVar {
                             id: p0.id_x(),
-                            partial_derivative: dr_dx0,
+                            partial_derivative: dr_dp0.x,
                         },
                         JacobianVar {
                             id: p0.id_y(),
-                            partial_derivative: dr_dy0,
+                            partial_derivative: dr_dp0.y,
                         },
                         JacobianVar {
                             id: p1.id_x(),
-                            partial_derivative: dr_dx1,
+                            partial_derivative: -dr_dp0.x,
                         },
                         JacobianVar {
                             id: p1.id_y(),
-                            partial_derivative: dr_dy1,
+                            partial_derivative: -dr_dp0.y,
                         },
                     ]
                     .as_slice(),
@@ -1126,32 +1112,28 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let df_dpx = (pv.x - qv.x) / dist;
-                let df_dpy = (pv.y - qv.y) / dist;
-                let df_dqx = -df_dpx;
-                let df_dqy = -df_dpy;
-                let df_dd = -1.0;
+                let df_dp = (pv - qv) * dist.recip();
                 row0.extend(
                     [
                         JacobianVar {
                             id: p.id_x(),
-                            partial_derivative: df_dpx,
+                            partial_derivative: df_dp.x,
                         },
                         JacobianVar {
                             id: p.id_y(),
-                            partial_derivative: df_dpy,
+                            partial_derivative: df_dp.y,
                         },
                         JacobianVar {
                             id: q.id_x(),
-                            partial_derivative: df_dqx,
+                            partial_derivative: -df_dp.x,
                         },
                         JacobianVar {
                             id: q.id_y(),
-                            partial_derivative: df_dqy,
+                            partial_derivative: -df_dp.y,
                         },
                         JacobianVar {
                             id: d.id,
-                            partial_derivative: df_dd,
+                            partial_derivative: -1.0,
                         },
                     ]
                     .as_slice(),
@@ -1196,22 +1178,15 @@ impl Constraint {
             Constraint::Vertical(line) => {
                 // Residual: R = x0 - x1
                 // ∂R/∂x for p0 and p1.
-                let dr_dx0 = 1.0;
-                let dr_dx1 = -1.0;
-
-                // Get the 'x' variable ID for the line's points.
-                let p0_x_id = line.p0.id_x();
-                let p1_x_id = line.p1.id_x();
-
                 row0.extend(
                     [
                         JacobianVar {
-                            id: p0_x_id,
-                            partial_derivative: dr_dx0,
+                            id: line.p0.id_x(),
+                            partial_derivative: 1.0,
                         },
                         JacobianVar {
-                            id: p1_x_id,
-                            partial_derivative: dr_dx1,
+                            id: line.p1.id_x(),
+                            partial_derivative: -1.0,
                         },
                     ]
                     .as_slice(),
@@ -1220,22 +1195,15 @@ impl Constraint {
             Constraint::Horizontal(line) => {
                 // Residual: R = y1 - y2
                 // ∂R/∂y for p0 and p1.
-                let dr_dy0 = 1.0;
-                let dr_dy1 = -1.0;
-
-                // Get the 'y' variable ID for the line's points.
-                let p0_y_id = line.p0.id_y();
-                let p1_y_id = line.p1.id_y();
-
                 row0.extend(
                     [
                         JacobianVar {
-                            id: p0_y_id,
-                            partial_derivative: dr_dy0,
+                            id: line.p0.id_y(),
+                            partial_derivative: 1.0,
                         },
                         JacobianVar {
-                            id: p1_y_id,
-                            partial_derivative: dr_dy1,
+                            id: line.p1.id_y(),
+                            partial_derivative: -1.0,
                         },
                     ]
                     .as_slice(),
@@ -1322,46 +1290,32 @@ impl Constraint {
                 // R1 = y0 - y1.
                 //
                 // For R0 = x0 - x1:
-                // ∂R0/∂x0 = 1
-                // ∂R0/∂y0 = 0
-                // ∂R0/∂x1 = -1
-                // ∂R0/∂y1 = 0
+                // ∂R0/∂x0 = 1,  ∂R0/∂y0 = 0
+                // ∂R0/∂x1 = -1, ∂R0/∂y1 = 0
                 //
                 // For R1 = y0 - y1:
-                // ∂R1/∂x0 = 0
-                // ∂R1/∂y0 = 1
-                // ∂R1/∂x1 = 0
-                // ∂R1/∂y1 = -1
-
-                let dr0_dx0 = 1.0;
-                // dr0_dy0 = 0.0
-                let dr0_dx1 = -1.0;
-                // dr0_dy1 = 0.0
-
-                // dr1_dx0 = 0.0
-                let dr1_dy0 = 1.0;
-                // dr1_dx1 = 0.0
-                let dr1_dy1 = -1.0;
+                // ∂R1/∂x0 = 0,  ∂R1/∂y0 = 1
+                // ∂R1/∂x1 = 0,  ∂R1/∂y1 = -1
 
                 // We only care about nonzero derivs here.
                 row0.extend([
                     JacobianVar {
                         id: p0.id_x(),
-                        partial_derivative: dr0_dx0,
+                        partial_derivative: 1.0,
                     },
                     JacobianVar {
                         id: p1.id_x(),
-                        partial_derivative: dr0_dx1,
+                        partial_derivative: -1.0,
                     },
                 ]);
                 row1.extend([
                     JacobianVar {
                         id: p0.id_y(),
-                        partial_derivative: dr1_dy0,
+                        partial_derivative: 1.0,
                     },
                     JacobianVar {
                         id: p1.id_y(),
-                        partial_derivative: dr1_dy1,
+                        partial_derivative: -1.0,
                     },
                 ]);
             }
@@ -1904,46 +1858,46 @@ impl Constraint {
                 // Then calculate the partial derivatives.
                 // Taken from SymPy, see ezpz-sympy.
                 // Precompute powers of r2 for the expressions below
-                let r2_sqrt = r2.sqrt();
-                let r2_sq = r2 * r2;
-                let r2_cubed = r2_sq * r2;
-                let r2_pow_5_2 = r2_sq * r2_sqrt; // r2^(5/2)
-                let r2_pow_7_2 = r2_cubed * r2_sqrt; // r2^(7/2)
-                let r2_pow_9_2 = r2_sq * r2_sq * r2_sqrt; // r2^(9/2)
-                let r0dax = ((end.x - center.x) * r2_pow_7_2
+                let r = r2.sqrt();
+                let r4 = r2 * r2;
+                let r6 = r4 * r2;
+                let r5 = r4 * r;
+                let r7 = r6 * r;
+                let r9 = r7 * r2;
+                let r0dax = ((end.x - center.x) * r7
                     - 2.0
                         * (start.x - center.x)
                         * ((start.x - center.x) * (end.x - center.x)
                             + (start.y - center.y) * (end.y - center.y))
-                        * r2_pow_5_2
-                    - dist * (start.x - center.x) * r2_cubed * libm::sin(dist / r2_sqrt))
-                    / r2_pow_9_2;
-                let r0day = ((end.y - center.y) * r2_pow_7_2
+                        * r5
+                    - dist * (start.x - center.x) * r6 * libm::sin(dist / r))
+                    / r9;
+                let r0day = ((end.y - center.y) * r7
                     - 2.0
                         * (start.y - center.y)
                         * ((start.x - center.x) * (end.x - center.x)
                             + (start.y - center.y) * (end.y - center.y))
-                        * r2_pow_5_2
-                    - dist * (start.y - center.y) * r2_cubed * libm::sin(dist / r2_sqrt))
-                    / r2_pow_9_2;
+                        * r5
+                    - dist * (start.y - center.y) * r6 * libm::sin(dist / r))
+                    / r9;
                 let r0dbx = (start.x - center.x) / r2;
                 let r0dby = (start.y - center.y) / r2;
-                let r0dcx = (r2_pow_7_2 * (-start.x - end.x + 2.0 * center.x)
+                let r0dcx = (r7 * (-start.x - end.x + 2.0 * center.x)
                     + 2.0
                         * (start.x - center.x)
                         * ((start.x - center.x) * (end.x - center.x)
                             + (start.y - center.y) * (end.y - center.y))
-                        * r2_pow_5_2
-                    + dist * (start.x - center.x) * r2_cubed * libm::sin(dist / r2_sqrt))
-                    / r2_pow_9_2;
-                let r0dcy = (r2_pow_7_2 * (-start.y - end.y + 2.0 * center.y)
+                        * r5
+                    + dist * (start.x - center.x) * r6 * libm::sin(dist / r))
+                    / r9;
+                let r0dcy = (r7 * (-start.y - end.y + 2.0 * center.y)
                     + 2.0
                         * (start.y - center.y)
                         * ((start.x - center.x) * (end.x - center.x)
                             + (start.y - center.y) * (end.y - center.y))
-                        * r2_pow_5_2
-                    + dist * (start.y - center.y) * r2_cubed * libm::sin(dist / r2_sqrt))
-                    / r2_pow_9_2;
+                        * r5
+                    + dist * (start.y - center.y) * r6 * libm::sin(dist / r))
+                    / r9;
                 row0.extend([
                     JacobianVar {
                         id: id_ax,
@@ -1970,40 +1924,40 @@ impl Constraint {
                         partial_derivative: r0dcy,
                     },
                 ]);
-                let r1dax = ((end.y - center.y) * r2_pow_7_2
+                let r1dax = ((end.y - center.y) * r7
                     - 2.0
                         * (start.x - center.x)
                         * ((start.x - center.x) * (end.y - center.y)
                             - (start.y - center.y) * (end.x - center.x))
-                        * r2_pow_5_2
-                    + dist * (start.x - center.x) * r2_cubed * libm::cos(dist / r2_sqrt))
-                    / r2_pow_9_2;
-                let r1day = ((-end.x + center.x) * r2_pow_7_2
+                        * r5
+                    + dist * (start.x - center.x) * r6 * libm::cos(dist / r))
+                    / r9;
+                let r1day = ((-end.x + center.x) * r7
                     - 2.0
                         * (start.y - center.y)
                         * ((start.x - center.x) * (end.y - center.y)
                             - (start.y - center.y) * (end.x - center.x))
-                        * r2_pow_5_2
-                    + dist * (start.y - center.y) * r2_cubed * libm::cos(dist / r2_sqrt))
-                    / r2_pow_9_2;
+                        * r5
+                    + dist * (start.y - center.y) * r6 * libm::cos(dist / r))
+                    / r9;
                 let r1dbx = (-start.y + center.y) / r2;
                 let r1dby = (start.x - center.x) / r2;
-                let r1dcx = ((start.y - end.y) * r2_pow_7_2
+                let r1dcx = ((start.y - end.y) * r7
                     + 2.0
                         * (start.x - center.x)
                         * ((start.x - center.x) * (end.y - center.y)
                             - (start.y - center.y) * (end.x - center.x))
-                        * r2_pow_5_2
-                    - dist * (start.x - center.x) * r2_cubed * libm::cos(dist / r2_sqrt))
-                    / r2_pow_9_2;
-                let r1dcy = ((-start.x + end.x) * r2_pow_7_2
+                        * r5
+                    - dist * (start.x - center.x) * r6 * libm::cos(dist / r))
+                    / r9;
+                let r1dcy = ((-start.x + end.x) * r7
                     + 2.0
                         * (start.y - center.y)
                         * ((start.x - center.x) * (end.y - center.y)
                             - (start.y - center.y) * (end.x - center.x))
-                        * r2_pow_5_2
-                    - dist * (start.y - center.y) * r2_cubed * libm::cos(dist / r2_sqrt))
-                    / r2_pow_9_2;
+                        * r5
+                    - dist * (start.y - center.y) * r6 * libm::cos(dist / r))
+                    / r9;
                 row1.extend([
                     JacobianVar {
                         id: id_ax,
