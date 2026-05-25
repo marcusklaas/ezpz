@@ -7,6 +7,37 @@ use crate::{
 };
 use std::f64::consts::PI;
 
+/// A combined view of a [`Layout`] and the current variable assignments,
+/// allowing convenient lookup by [`Id`] or [`DatumPoint`].
+pub(crate) struct Assignments<'a> {
+    layout: &'a Layout,
+    values: &'a [f64],
+}
+
+impl<'a> Assignments<'a> {
+    pub(crate) fn new(layout: &'a Layout, values: &'a [f64]) -> Self {
+        Self { layout, values }
+    }
+
+    /// Look up a [`DatumPoint`] and return its current value as a [`V`].
+    #[inline(always)]
+    pub(crate) fn point(&self, p: DatumPoint) -> V {
+        V::new(
+            self.values[self.layout.index_of(p.id_x())],
+            self.values[self.layout.index_of(p.id_y())],
+        )
+    }
+}
+
+impl std::ops::Index<Id> for Assignments<'_> {
+    type Output = f64;
+
+    #[inline(always)]
+    fn index(&self, id: Id) -> &f64 {
+        &self.values[self.layout.index_of(id)]
+    }
+}
+
 /// Constructors for constraints which are a composition of
 /// existing constraints.
 mod composite;
@@ -505,23 +536,15 @@ impl Constraint {
         _residual2: &mut f64,
         degenerate: &mut bool,
     ) {
+        let a = Assignments::new(layout, current_assignments);
         match self {
             Constraint::LineTangentToCircle(line, circle, side) => {
                 // Get current state of the entities.
-                let p0_x = current_assignments[layout.index_of(line.p0.id_x())];
-                let p0_y = current_assignments[layout.index_of(line.p0.id_y())];
-                let p0 = V::new(p0_x, p0_y);
-
-                let p1_x = current_assignments[layout.index_of(line.p1.id_x())];
-                let p1_y = current_assignments[layout.index_of(line.p1.id_y())];
-                let p1 = V::new(p1_x, p1_y);
-
-                let c_x = current_assignments[layout.index_of(circle.center.id_x())];
-                let c_y = current_assignments[layout.index_of(circle.center.id_y())];
-                let c = V::new(c_x, c_y);
-
+                let p0 = a.point(line.p0);
+                let p1 = a.point(line.p1);
+                let c = a.point(circle.center);
                 // NOTE: Taking abs to guard against negative radius
-                let radius = current_assignments[layout.index_of(circle.radius.id)].abs();
+                let radius = a[circle.radius.id].abs();
 
                 // Calculate the unsigned distance from the circle's center to the line.
                 let u = p1 - p0;
@@ -543,17 +566,11 @@ impl Constraint {
                 *residual0 = cen_dist - radius;
             }
             Constraint::CircleTangentToCircle(circle_a, circle_b, side) => {
-                let a_c = V::new(
-                    current_assignments[layout.index_of(circle_a.center.id_x())],
-                    current_assignments[layout.index_of(circle_a.center.id_y())],
-                );
-                let a_r = current_assignments[layout.index_of(circle_a.radius.id)].abs();
+                let a_c = a.point(circle_a.center);
+                let a_r = a[circle_a.radius.id].abs();
 
-                let b_c = V::new(
-                    current_assignments[layout.index_of(circle_b.center.id_x())],
-                    current_assignments[layout.index_of(circle_b.center.id_y())],
-                );
-                let b_r = current_assignments[layout.index_of(circle_b.radius.id)].abs();
+                let b_c = a.point(circle_b.center);
+                let b_r = a[circle_b.radius.id].abs();
 
                 let dist = (a_c - b_c).magnitude();
                 *residual0 = if *side == CircleSide::Interior {
@@ -563,69 +580,57 @@ impl Constraint {
                 };
             }
             Constraint::Distance(p0, p1, expected_distance) => {
-                let p0_x = current_assignments[layout.index_of(p0.id_x())];
-                let p0_y = current_assignments[layout.index_of(p0.id_y())];
-                let p0 = V::new(p0_x, p0_y);
-                let p1_x = current_assignments[layout.index_of(p1.id_x())];
-                let p1_y = current_assignments[layout.index_of(p1.id_y())];
-                let p1 = V::new(p1_x, p1_y);
+                let p0 = a.point(*p0);
+                let p1 = a.point(*p1);
                 let actual_distance = p0.euclidean_distance(p1);
                 *residual0 = actual_distance - expected_distance;
             }
             Constraint::DistanceVar(p, q, d) => {
-                let px = current_assignments[layout.index_of(p.id_x())];
-                let py = current_assignments[layout.index_of(p.id_y())];
-                let qx = current_assignments[layout.index_of(q.id_x())];
-                let qy = current_assignments[layout.index_of(q.id_y())];
-                let d = current_assignments[layout.index_of(d.id)];
-                let residual = -d + ((px - qx).square() + (py - qy).square()).sqrt();
+                let p = a.point(*p);
+                let q = a.point(*q);
+                let d = a[d.id];
+                let residual = -d + (p - q).magnitude();
                 *residual0 = residual;
             }
             Constraint::VerticalDistance(p0, p1, expected_distance) => {
-                let p0_y = current_assignments[layout.index_of(p0.id_y())];
-                let p1_y = current_assignments[layout.index_of(p1.id_y())];
+                let p0 = a.point(*p0);
+                let p1 = a.point(*p1);
                 // Residual:
                 // p0.y - p1.y = d
                 // p0.y - p1.y - d = 0
-                *residual0 = (p0_y - p1_y) - expected_distance;
+                *residual0 = (p0.y - p1.y) - expected_distance;
             }
             Constraint::HorizontalDistance(p0, p1, expected_distance) => {
-                let p0_x = current_assignments[layout.index_of(p0.id_x())];
-                let p1_x = current_assignments[layout.index_of(p1.id_x())];
-                *residual0 = (p0_x - p1_x) - expected_distance;
+                let p0 = a.point(*p0);
+                let p1 = a.point(*p1);
+                *residual0 = (p0.x - p1.x) - expected_distance;
             }
             Constraint::Vertical(line) => {
-                let p0_x = current_assignments[layout.index_of(line.p0.id_x())];
-                let p1_x = current_assignments[layout.index_of(line.p1.id_x())];
-                *residual0 = p0_x - p1_x;
+                let p0 = a.point(line.p0);
+                let p1 = a.point(line.p1);
+                *residual0 = p0.x - p1.x;
             }
             Constraint::Horizontal(line) => {
-                let p0_y = current_assignments[layout.index_of(line.p0.id_y())];
-                let p1_y = current_assignments[layout.index_of(line.p1.id_y())];
-                *residual0 = p0_y - p1_y;
+                let p0 = a.point(line.p0);
+                let p1 = a.point(line.p1);
+                *residual0 = p0.y - p1.y;
             }
             Constraint::Fixed(id, expected) => {
-                let actual = current_assignments[layout.index_of(*id)];
+                let actual = a[*id];
                 *residual0 = actual - expected;
             }
             Constraint::ScalarEqual(x, y) => {
                 // Residual equation R: x-y=0
-                let vx = current_assignments[layout.index_of(*x)];
-                let vy = current_assignments[layout.index_of(*y)];
-                *residual0 = vx - vy;
+                *residual0 = a[*x] - a[*y];
             }
             Constraint::LinesAtAngle(line0, line1, expected_angle) => {
-                let x0 = current_assignments[layout.index_of(line0.p0.id_x())];
-                let y0 = current_assignments[layout.index_of(line0.p0.id_y())];
-                let x1 = current_assignments[layout.index_of(line0.p1.id_x())];
-                let y1 = current_assignments[layout.index_of(line0.p1.id_y())];
-                let x2 = current_assignments[layout.index_of(line1.p0.id_x())];
-                let y2 = current_assignments[layout.index_of(line1.p0.id_y())];
-                let x3 = current_assignments[layout.index_of(line1.p1.id_x())];
-                let y3 = current_assignments[layout.index_of(line1.p1.id_y())];
+                let p00 = a.point(line0.p0);
+                let p01 = a.point(line0.p1);
+                let p10 = a.point(line1.p0);
+                let p11 = a.point(line1.p1);
 
-                let u = V::new(x1 - x0, y1 - y0);
-                let v = V::new(x3 - x2, y3 - y2);
+                let u = V::new(p01.x - p00.x, p01.y - p00.y);
+                let v = V::new(p11.x - p10.x, p11.y - p10.y);
 
                 if (u.magnitude_squared() <= EPSILON_SQ) || (v.magnitude_squared() <= EPSILON_SQ) {
                     *degenerate = true;
@@ -636,19 +641,17 @@ impl Constraint {
                 *residual0 = u.cross_2d(rot.inverse().apply(v));
             }
             Constraint::PointsCoincident(p0, p1) => {
-                let p0_x = current_assignments[layout.index_of(p0.id_x())];
-                let p0_y = current_assignments[layout.index_of(p0.id_y())];
-                let p1_x = current_assignments[layout.index_of(p1.id_x())];
-                let p1_y = current_assignments[layout.index_of(p1.id_y())];
-                *residual0 = p0_x - p1_x;
-                *residual1 = p0_y - p1_y;
+                let p0 = a.point(*p0);
+                let p1 = a.point(*p1);
+                *residual0 = p0.x - p1.x;
+                *residual1 = p0.y - p1.y;
             }
             Constraint::CircleRadius(circle, expected_radius) => {
-                let actual_radius = current_assignments[layout.index_of(circle.radius.id)];
+                let actual_radius = a[circle.radius.id];
                 *residual0 = actual_radius - *expected_radius;
             }
             Constraint::LinesEqualLength(line0, line1) => {
-                let (l0, l1) = get_line_ends(current_assignments, line0, line1, layout);
+                let (l0, l1) = get_line_ends(&a, line0, line1);
                 let len0 = l0.0.euclidean_distance(l0.1);
                 let len1 = l1.0.euclidean_distance(l1.1);
                 *residual0 = len0 - len1;
@@ -678,34 +681,26 @@ impl Constraint {
                 );
             }
             Constraint::Arc(arc) => {
-                let start_x = current_assignments[layout.index_of(arc.start.id_x())];
-                let start_y = current_assignments[layout.index_of(arc.start.id_y())];
-                let end_x = current_assignments[layout.index_of(arc.end.id_x())];
-                let end_y = current_assignments[layout.index_of(arc.end.id_y())];
-                let cx = current_assignments[layout.index_of(arc.center.id_x())];
-                let cy = current_assignments[layout.index_of(arc.center.id_y())];
+                let start = a.point(arc.start);
+                let end = a.point(arc.end);
+                let c = a.point(arc.center);
                 // For numerical stability and simpler derivatives, we compare the squared
                 // distances. The residual is zero if the distances are equal.
                 // R = distance(center, start)² - distance(center, end)²
-                let dist0_sq = (start_x - cx).square() + (start_y - cy).square();
-                let dist1_sq = (end_x - cx).square() + (end_y - cy).square();
+                let dist0_sq = (start - c).magnitude_squared();
+                let dist1_sq = (end - c).magnitude_squared();
 
                 *residual0 = dist0_sq - dist1_sq;
             }
             Constraint::Midpoint(line, point) => {
-                let p = line.p0;
-                let q = line.p1;
-                let px = current_assignments[layout.index_of(p.id_x())];
-                let py = current_assignments[layout.index_of(p.id_y())];
-                let qx = current_assignments[layout.index_of(q.id_x())];
-                let qy = current_assignments[layout.index_of(q.id_y())];
-                let ax = current_assignments[layout.index_of(point.id_x())];
-                let ay = current_assignments[layout.index_of(point.id_y())];
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
+                let a_mid = a.point(*point);
                 // Equation:
                 //   ax = (px + qx)/2,
                 // ∴ ax - px/2 - qx/2 = 0
-                *residual0 = ax - px / 2.0 - qx / 2.0;
-                *residual1 = ay - py / 2.0 - qy / 2.0;
+                *residual0 = a_mid.x - p.x / 2.0 - q.x / 2.0;
+                *residual1 = a_mid.y - p.y / 2.0 - q.y / 2.0;
             }
             Constraint::PointLineDistance(point, line, target_distance) => {
                 // Equation:
@@ -718,19 +713,18 @@ impl Constraint {
                 // Note that we use a signed direction, so there's no absolute value
                 // of the numerator, as you'd usually see. This stops the solver
                 // from randomly flipping which side of the line the point is on.
-                let px = current_assignments[layout.index_of(point.id_x())];
-                let py = current_assignments[layout.index_of(point.id_y())];
-                let (a, b, c) = equation_of_line(current_assignments, line, layout);
+                let p = a.point(*point);
+                let (a_coeff, b, c) = equation_of_line(&a, line);
 
                 // The above equation is a division, so make sure not to divide by zero.
-                let denominator = libm::hypot(a, b);
+                let denominator = libm::hypot(a_coeff, b);
                 let is_invalid = denominator < EPSILON;
                 if is_invalid {
                     *residual0 = 0.0;
                     *degenerate = true;
                     return;
                 }
-                let actual_distance = (a * px + b * py + c) / denominator;
+                let actual_distance = (a_coeff * p.x + b * p.y + c) / denominator;
 
                 // Residual is then easy to calculate, it's just the gap between actual and target.
                 let residual = actual_distance - target_distance;
@@ -743,84 +737,60 @@ impl Constraint {
                 // dx = qx - px
                 // dy = qy - py
                 // r = (ay - py - desired) * dx - dy * (ax - px)
-                let ax = current_assignments[layout.index_of(point.id_x())];
-                let ay = current_assignments[layout.index_of(point.id_y())];
-                let px = current_assignments[layout.index_of(line.p0.id_x())];
-                let py = current_assignments[layout.index_of(line.p0.id_y())];
-                let qx = current_assignments[layout.index_of(line.p1.id_x())];
-                let qy = current_assignments[layout.index_of(line.p1.id_y())];
-                let dx = qx - px;
-                let dy = qy - py;
-                if dx.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
+                let a_pt = a.point(*point);
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
+                let d = q - p;
+                let dx = d.x;
+                let dy = d.y;
+                if dx.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
                 }
-                let residual = (ay - py - desired_distance) * dx - dy * (ax - px);
+                let residual = (a_pt.y - p.y - desired_distance) * dx - dy * (a_pt.x - p.x);
                 *residual0 = residual;
             }
-            Constraint::HorizontalPointLineDistance(point, line, d) => {
+            Constraint::HorizontalPointLineDistance(point, line, d_distance) => {
                 // See notebook:
                 // https://github.com/KittyCAD/ezpz-sympy/blob/main/main.py
                 // Residual:
                 // m = (qy-py)/(qx-px)
                 // actual = ay - (m * (ax - px) + py)
                 // residual = actual - desired_distance
-                let ax = current_assignments[layout.index_of(point.id_x())];
-                let ay = current_assignments[layout.index_of(point.id_y())];
-                let px = current_assignments[layout.index_of(line.p0.id_x())];
-                let py = current_assignments[layout.index_of(line.p0.id_y())];
-                let qx = current_assignments[layout.index_of(line.p1.id_x())];
-                let qy = current_assignments[layout.index_of(line.p1.id_y())];
-                let dx = qx - px;
-                let dy = qy - py;
-                if dy.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
+                let a_pt = a.point(*point);
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
+                let d = q - p;
+                let dy = d.y;
+                if dy.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // horizontal or zero-length line
                     *degenerate = true;
                     return;
                 }
-                let residual = ax - d - px - (ay - py) * (-px + qx) / (-py + qy);
+                let residual =
+                    a_pt.x - d_distance - p.x - (a_pt.y - p.y) * (-p.x + q.x) / (-p.y + q.y);
                 *residual0 = residual;
             }
-            Constraint::Symmetric(line, a, b) => {
+            Constraint::Symmetric(line, point_a, point_b) => {
                 // Equation: reflect(a - p, q - p) - b + p
                 // See notebook:
                 // <https://colab.research.google.com/drive/17L_Lq-yTJOaLhDd2R0OtEe4Rwkr5RHsj#scrollTo=HpAraZ0OhKBW>
 
-                let ax = current_assignments[layout.index_of(a.id_x())];
-                let ay = current_assignments[layout.index_of(a.id_y())];
-                let bx = current_assignments[layout.index_of(b.id_x())];
-                let by = current_assignments[layout.index_of(b.id_y())];
-                let px = current_assignments[layout.index_of(line.p0.id_x())];
-                let py = current_assignments[layout.index_of(line.p0.id_y())];
-                let qx = current_assignments[layout.index_of(line.p1.id_x())];
-                let qy = current_assignments[layout.index_of(line.p1.id_y())];
+                let av = a.point(*point_a);
+                let b = a.point(*point_b);
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
 
-                let a = V::new(ax, ay);
-                let b = V::new(bx, by);
-                let p = V::new(px, py);
-                let q = V::new(qx, qy);
-
-                let residual = (a - p).reflect(q - p) - b + p;
+                let residual = (av - p).reflect(q - p) - b + p;
                 *residual0 = residual.x;
                 *residual1 = residual.y;
             }
             Constraint::PointArcCoincident(circular_arc, point) => {
-                let cx = current_assignments[layout.index_of(circular_arc.center.id_x())];
-                let cy = current_assignments[layout.index_of(circular_arc.center.id_y())];
-                let c = V::new(cx, cy);
-
-                let sx = current_assignments[layout.index_of(circular_arc.start.id_x())];
-                let sy = current_assignments[layout.index_of(circular_arc.start.id_y())];
-                let s = V::new(sx, sy) - c;
-
-                let ex = current_assignments[layout.index_of(circular_arc.end.id_x())];
-                let ey = current_assignments[layout.index_of(circular_arc.end.id_y())];
-                let e = V::new(ex, ey) - c;
-
-                let px = current_assignments[layout.index_of(point.id_x())];
-                let py = current_assignments[layout.index_of(point.id_y())];
-                let p = V::new(px, py) - c;
+                let c = a.point(circular_arc.center);
+                let s = a.point(circular_arc.start) - c;
+                let e = a.point(circular_arc.end) - c;
+                let p = a.point(*point) - c;
 
                 let r = s.magnitude();
                 let r_e = e.magnitude();
@@ -875,25 +845,20 @@ impl Constraint {
                 // res0 = cos_theta - sp.cos(alpha)
                 // res1 = sin_theta - sp.sin(alpha)
 
-                let cx = current_assignments[layout.index_of(circular_arc.center.id_x())];
-                let cy = current_assignments[layout.index_of(circular_arc.center.id_y())];
-                let ax = current_assignments[layout.index_of(circular_arc.start.id_x())];
-                let ay = current_assignments[layout.index_of(circular_arc.start.id_y())];
-                let bx = current_assignments[layout.index_of(circular_arc.end.id_x())];
-                let by = current_assignments[layout.index_of(circular_arc.end.id_y())];
-                let dx = ax - cx;
-                let dy = ay - cy;
-                let r2 = dx.square() + dy.square();
+                let start = a.point(circular_arc.start);
+                let end = a.point(circular_arc.end);
+                let c = a.point(circular_arc.center);
+                let r2 = (start - c).magnitude_squared();
                 if r2 < EPSILON {
                     *residual0 = 0.0;
                     *residual1 = 0.0;
                     *degenerate = true;
                     return;
                 }
-                let res0 =
-                    ((ax - cx) * (bx - cx) + (ay - cy) * (by - cy)) / r2 - libm::cos(d / r2.sqrt());
-                let res1 =
-                    ((ax - cx) * (by - cy) - (ay - cy) * (bx - cx)) / r2 - libm::sin(d / r2.sqrt());
+                let res0 = ((start.x - c.x) * (end.x - c.x) + (start.y - c.y) * (end.y - c.y)) / r2
+                    - libm::cos(d / r2.sqrt());
+                let res1 = ((start.x - c.x) * (end.y - c.y) - (start.y - c.y) * (end.x - c.x)) / r2
+                    - libm::sin(d / r2.sqrt());
 
                 *residual0 = res0;
                 *residual1 = res1;
@@ -918,18 +883,9 @@ impl Constraint {
                 degenerate,
             ),
             Constraint::PointsAtAngle(p0, p1, p2, expected_angle) => {
-                let p0v = V::new(
-                    current_assignments[layout.index_of(p0.id_x())],
-                    current_assignments[layout.index_of(p0.id_y())],
-                );
-                let p1v = V::new(
-                    current_assignments[layout.index_of(p1.id_x())],
-                    current_assignments[layout.index_of(p1.id_y())],
-                );
-                let p2v = V::new(
-                    current_assignments[layout.index_of(p2.id_x())],
-                    current_assignments[layout.index_of(p2.id_y())],
-                );
+                let p0v = a.point(*p0);
+                let p1v = a.point(*p1);
+                let p2v = a.point(*p2);
 
                 let u = p1v - p0v;
                 let v = p2v - p0v;
@@ -1012,24 +968,14 @@ impl Constraint {
         _row2: &mut Vec<JacobianVar>,
         degenerate: &mut bool,
     ) {
+        let a = Assignments::new(layout, current_assignments);
         match self {
             Constraint::LineTangentToCircle(line, circle, side) => {
                 // Residual: R = cross(u, v) / |u| - r
                 // where u = p1 - p0 and v = c - p0.
-                let p0 = V::new(
-                    current_assignments[layout.index_of(line.p0.id_x())],
-                    current_assignments[layout.index_of(line.p0.id_y())],
-                );
-
-                let p1 = V::new(
-                    current_assignments[layout.index_of(line.p1.id_x())],
-                    current_assignments[layout.index_of(line.p1.id_y())],
-                );
-
-                let c = V::new(
-                    current_assignments[layout.index_of(circle.center.id_x())],
-                    current_assignments[layout.index_of(circle.center.id_y())],
-                );
+                let p0 = a.point(line.p0);
+                let p1 = a.point(line.p1);
+                let c = a.point(circle.center);
 
                 let u = p1 - p0;
                 let mag_u = u.magnitude();
@@ -1091,17 +1037,11 @@ impl Constraint {
                 row0.extend(coeffs.as_slice());
             }
             Constraint::CircleTangentToCircle(circle_a, circle_b, side) => {
-                let a_c = V::new(
-                    current_assignments[layout.index_of(circle_a.center.id_x())],
-                    current_assignments[layout.index_of(circle_a.center.id_y())],
-                );
-                let a_r = current_assignments[layout.index_of(circle_a.radius.id)];
+                let a_c = a.point(circle_a.center);
+                let a_r = a[circle_a.radius.id];
 
-                let b_c = V::new(
-                    current_assignments[layout.index_of(circle_b.center.id_x())],
-                    current_assignments[layout.index_of(circle_b.center.id_y())],
-                );
-                let b_r = current_assignments[layout.index_of(circle_b.radius.id)];
+                let b_c = a.point(circle_b.center);
+                let b_r = a[circle_b.radius.id];
 
                 let d = b_c - a_c;
                 let mag_d = d.magnitude();
@@ -1160,18 +1100,16 @@ impl Constraint {
                 // ∂R/∂y1 = (-y0 + y1)/ sqrt((x0 - x1)**2 + (y0 - y1)**2)
 
                 // Derivatives wrt p0 and p2's X/Y coordinates.
-                let x0 = current_assignments[layout.index_of(p0.id_x())];
-                let y0 = current_assignments[layout.index_of(p0.id_y())];
-                let x1 = current_assignments[layout.index_of(p1.id_x())];
-                let y1 = current_assignments[layout.index_of(p1.id_y())];
+                let p0v = a.point(*p0);
+                let p1v = a.point(*p1);
 
-                let dist = V::new(x0, y0).euclidean_distance(V::new(x1, y1));
+                let dist = p0v.euclidean_distance(p1v);
                 if dist < EPSILON {
                     *degenerate = true;
                     return;
                 }
-                let dr_dx0 = (x0 - x1) / dist;
-                let dr_dy0 = (y0 - y1) / dist;
+                let dr_dx0 = (p0v.x - p1v.x) / dist;
+                let dr_dy0 = (p0v.y - p1v.y) / dist;
                 let dr_dx1 = -dr_dx0;
                 let dr_dy1 = -dr_dy0;
 
@@ -1198,23 +1136,21 @@ impl Constraint {
                 );
             }
             Constraint::DistanceVar(p, q, d) => {
-                let px = current_assignments[layout.index_of(p.id_x())];
-                let py = current_assignments[layout.index_of(p.id_y())];
-                let qx = current_assignments[layout.index_of(q.id_x())];
-                let qy = current_assignments[layout.index_of(q.id_y())];
+                let pv = a.point(*p);
+                let qv = a.point(*q);
                 /* Derivative math, from ezpz-sympy:
                 residual = norm(p - q) - d
                 df_dp = normalized(p - q)
                 df_dq = -df_dp
                 df_dd = -1
                 */
-                let dist = V::new(px, py).euclidean_distance(V::new(qx, qy));
+                let dist = pv.euclidean_distance(qv);
                 if dist < EPSILON {
                     *degenerate = true;
                     return;
                 }
-                let df_dpx = (px - qx) / dist;
-                let df_dpy = (py - qy) / dist;
+                let df_dpx = (pv.x - qv.x) / dist;
+                let df_dpy = (pv.y - qv.y) / dist;
                 let df_dqx = -df_dpx;
                 let df_dqy = -df_dpy;
                 let df_dd = -1.0;
@@ -1351,17 +1287,13 @@ impl Constraint {
                 });
             }
             Constraint::LinesAtAngle(line0, line1, expected_angle) => {
-                let x0 = current_assignments[layout.index_of(line0.p0.id_x())];
-                let y0 = current_assignments[layout.index_of(line0.p0.id_y())];
-                let x1 = current_assignments[layout.index_of(line0.p1.id_x())];
-                let y1 = current_assignments[layout.index_of(line0.p1.id_y())];
-                let x2 = current_assignments[layout.index_of(line1.p0.id_x())];
-                let y2 = current_assignments[layout.index_of(line1.p0.id_y())];
-                let x3 = current_assignments[layout.index_of(line1.p1.id_x())];
-                let y3 = current_assignments[layout.index_of(line1.p1.id_y())];
+                let p0 = a.point(line0.p0);
+                let p1 = a.point(line0.p1);
+                let p2 = a.point(line1.p0);
+                let p3 = a.point(line1.p1);
 
-                let u = V::new(x1 - x0, y1 - y0);
-                let v = V::new(x3 - x2, y3 - y2);
+                let u = p1 - p0;
+                let v = p3 - p2;
 
                 if (u.magnitude_squared() <= EPSILON_SQ) || (v.magnitude_squared() <= EPSILON_SQ) {
                     *degenerate = true;
@@ -1387,17 +1319,7 @@ impl Constraint {
                 row0.extend(jvars.as_slice());
             }
             Constraint::LinesEqualLength(line0, line1) => {
-                // Get all points
-                let x0 = current_assignments[layout.index_of(line0.p0.id_x())];
-                let y0 = current_assignments[layout.index_of(line0.p0.id_y())];
-                let x1 = current_assignments[layout.index_of(line0.p1.id_x())];
-                let y1 = current_assignments[layout.index_of(line0.p1.id_y())];
-                let l0 = (V::new(x0, y0), V::new(x1, y1));
-                let x2 = current_assignments[layout.index_of(line1.p0.id_x())];
-                let y2 = current_assignments[layout.index_of(line1.p0.id_y())];
-                let x3 = current_assignments[layout.index_of(line1.p1.id_x())];
-                let y3 = current_assignments[layout.index_of(line1.p1.id_y())];
-                let l1 = (V::new(x2, y2), V::new(x3, y3));
+                let (l0, l1) = get_line_ends(&a, line0, line1);
 
                 // Calculate lengths of each line.
                 let len0 = l0.0.euclidean_distance(l0.1);
@@ -1410,10 +1332,10 @@ impl Constraint {
                 }
 
                 // Calculate derivatives.
-                let inv_len0_x = (x0 - x1) / len0;
-                let inv_len0_y = (y0 - y1) / len0;
-                let inv_len1_x = (-x2 + x3) / len1;
-                let inv_len1_y = (-y2 + y3) / len1;
+                let inv_len0_x = (l0.0.x - l0.1.x) / len0;
+                let inv_len0_y = (l0.0.y - l0.1.y) / len0;
+                let inv_len1_x = (-l1.0.x + l1.1.x) / len1;
+                let inv_len1_y = (-l1.0.y + l1.1.y) / len1;
                 let pds = PartialDerivatives4Points {
                     x0: inv_len0_x,
                     y0: inv_len0_y,
@@ -1519,22 +1441,19 @@ impl Constraint {
                 // ∂R/∂yc = 2*(y_end-y_start)
                 // Plus derivatives for CCW constraint when cross < 0
 
-                let start_x = current_assignments[layout.index_of(arc.start.id_x())];
-                let start_y = current_assignments[layout.index_of(arc.start.id_y())];
-                let end_x = current_assignments[layout.index_of(arc.end.id_x())];
-                let end_y = current_assignments[layout.index_of(arc.end.id_y())];
-                let cx = current_assignments[layout.index_of(arc.center.id_x())];
-                let cy = current_assignments[layout.index_of(arc.center.id_y())];
+                let start = a.point(arc.start);
+                let end = a.point(arc.end);
+                let c = a.point(arc.center);
 
                 // TODO: Handle degenerate case here
 
                 // Calculate derivative values for distance constraint.
-                let dx_start = (start_x - cx) * 2.0;
-                let dy_start = (start_y - cy) * 2.0;
-                let dx_end = (end_x - cx) * -2.0;
-                let dy_end = (end_y - cy) * -2.0;
-                let dx_c = (end_x - start_x) * 2.0;
-                let dy_c = (end_y - start_y) * 2.0;
+                let dx_start = (start.x - c.x) * 2.0;
+                let dy_start = (start.y - c.y) * 2.0;
+                let dx_end = (end.x - c.x) * -2.0;
+                let dy_end = (end.y - c.y) * -2.0;
+                let dx_c = (end.x - start.x) * 2.0;
+                let dy_c = (end.y - start.y) * 2.0;
 
                 row0.extend([
                     JacobianVar {
@@ -1618,23 +1537,20 @@ impl Constraint {
                 // Note that we use a signed direction, so there's no absolute value
                 // of the numerator, as you'd usually see. This stops the solver
                 // from randomly flipping which side of the line the point is on.
-                let px = current_assignments[layout.index_of(point.id_x())];
-                let py = current_assignments[layout.index_of(point.id_y())];
-                let p0x = current_assignments[layout.index_of(line.p0.id_x())];
-                let p0y = current_assignments[layout.index_of(line.p0.id_y())];
-                let p1x = current_assignments[layout.index_of(line.p1.id_x())];
-                let p1y = current_assignments[layout.index_of(line.p1.id_y())];
+                let pv = a.point(*point);
+                let p0v = a.point(line.p0);
+                let p1v = a.point(line.p1);
 
                 let partial_derivatives = pds_for_point_line(
                     *point,
                     line,
                     PointLineVars {
-                        px,
-                        py,
-                        p0x,
-                        p0y,
-                        p1x,
-                        p1y,
+                        px: pv.x,
+                        py: pv.y,
+                        p0x: p0v.x,
+                        p0y: p0v.y,
+                        p1x: p1v.x,
+                        p1y: p1v.y,
                     },
                 );
 
@@ -1649,15 +1565,13 @@ impl Constraint {
                 let id_py = line.p0.id_y();
                 let id_qx = line.p1.id_x();
                 let id_qy = line.p1.id_y();
-                let ax = current_assignments[layout.index_of(id_ax)];
-                let ay = current_assignments[layout.index_of(id_ay)];
-                let px = current_assignments[layout.index_of(id_px)];
-                let py = current_assignments[layout.index_of(id_py)];
-                let qx = current_assignments[layout.index_of(id_qx)];
-                let qy = current_assignments[layout.index_of(id_qy)];
-                let dx = qx - px;
-                let dy = qy - py;
-                if dx.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
+                let a_pt = a.point(*point);
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
+                let d = q - p;
+                let dx = d.x;
+                let dy = d.y;
+                if dx.abs() < EPSILON || d.magnitude_squared() < EPSILON {
                     // vertical or zero-length line
                     *degenerate = true;
                     return;
@@ -1666,10 +1580,10 @@ impl Constraint {
                 // Partial derivatives for the scaled residual:
                 let dax = -dy;
                 let day = dx;
-                let dpx = qy - ay;
-                let dpy = ax - qx;
-                let dqx = ay - py;
-                let dqy = -(ax - px);
+                let dpx = q.y - a_pt.y;
+                let dpy = a_pt.x - q.x;
+                let dqx = a_pt.y - p.y;
+                let dqy = -(a_pt.x - p.x);
                 row0.extend([
                     JacobianVar {
                         id: id_ax,
@@ -1706,25 +1620,22 @@ impl Constraint {
                 let id_py = line.p0.id_y();
                 let id_qx = line.p1.id_x();
                 let id_qy = line.p1.id_y();
-                // let ax = current_assignments[layout.index_of(id_ax)];
-                let ay = current_assignments[layout.index_of(id_ay)];
-                let px = current_assignments[layout.index_of(id_px)];
-                let py = current_assignments[layout.index_of(id_py)];
-                let qx = current_assignments[layout.index_of(id_qx)];
-                let qy = current_assignments[layout.index_of(id_qy)];
-                let dx = qx - px;
-                let dy = qy - py;
-                if dy.abs() < EPSILON || (dx.square() + dy.square()) < EPSILON {
-                    // vertical or zero-length line
+                let a_pt = a.point(*point);
+                let p = a.point(line.p0);
+                let q = a.point(line.p1);
+                let d = q - p;
+                let dy = d.y;
+                if dy.abs() < EPSILON || d.magnitude_squared() < EPSILON {
+                    // horizontal or zero-length line
                     *degenerate = true;
                     return;
                 }
-                let dpx = (-ay + qy) / (py - qy);
-                let dpy = (ay - qy) * (px - qx) / ((py - qy) * (py - qy));
-                let dqx = (ay - py) / (py - qy);
-                let dqy = -(ay - py) * (px - qx) / ((py - qy) * (py - qy));
+                let dpx = (-a_pt.y + q.y) / (p.y - q.y);
+                let dpy = (a_pt.y - q.y) * (p.x - q.x) / ((p.y - q.y) * (p.y - q.y));
+                let dqx = (a_pt.y - p.y) / (p.y - q.y);
+                let dqy = -(a_pt.y - p.y) * (p.x - q.x) / ((p.y - q.y) * (p.y - q.y));
                 let dax = 1.0;
-                let day = (-px + qx) / (py - qy);
+                let day = (-p.x + q.x) / (p.y - q.y);
                 row0.extend([
                     JacobianVar {
                         id: id_ax,
@@ -1752,23 +1663,27 @@ impl Constraint {
                     },
                 ]);
             }
-            Constraint::Symmetric(line, a, b) => {
+            Constraint::Symmetric(line, pt_a, b) => {
                 let id_px = line.p0.id_x();
                 let id_py = line.p0.id_y();
                 let id_qx = line.p1.id_x();
                 let id_qy = line.p1.id_y();
-                let id_ax = a.id_x();
-                let id_ay = a.id_y();
+                let id_ax = pt_a.id_x();
+                let id_ay = pt_a.id_y();
                 let id_bx = b.id_x();
                 let id_by = b.id_y();
 
+                let pv = a.point(line.p0);
+                let qv = a.point(line.p1);
+                let av = a.point(*pt_a);
+
                 let values = SymmetricVars {
-                    px: current_assignments[layout.index_of(id_px)],
-                    py: current_assignments[layout.index_of(id_py)],
-                    qx: current_assignments[layout.index_of(id_qx)],
-                    qy: current_assignments[layout.index_of(id_qy)],
-                    ax: current_assignments[layout.index_of(a.id_x())],
-                    ay: current_assignments[layout.index_of(a.id_y())],
+                    px: pv.x,
+                    py: pv.y,
+                    qx: qv.x,
+                    qy: qv.y,
+                    ax: av.x,
+                    ay: av.y,
                 };
                 let Some(pds) = pds_from_symmetric(values) else {
                     *degenerate = true;
@@ -1847,27 +1762,19 @@ impl Constraint {
             Constraint::PointArcCoincident(circular_arc, point) => {
                 let id_cx = circular_arc.center.id_x();
                 let id_cy = circular_arc.center.id_y();
-                let cx = current_assignments[layout.index_of(id_cx)];
-                let cy = current_assignments[layout.index_of(id_cy)];
-                let c = V::new(cx, cy);
+                let c = a.point(circular_arc.center);
 
                 let id_sx = circular_arc.start.id_x();
                 let id_sy = circular_arc.start.id_y();
-                let sx = current_assignments[layout.index_of(id_sx)];
-                let sy = current_assignments[layout.index_of(id_sy)];
-                let s = V::new(sx, sy) - c;
+                let s = a.point(circular_arc.start) - c;
 
                 let id_ex = circular_arc.end.id_x();
                 let id_ey = circular_arc.end.id_y();
-                let ex = current_assignments[layout.index_of(id_ex)];
-                let ey = current_assignments[layout.index_of(id_ey)];
-                let e = V::new(ex, ey) - c;
+                let e = a.point(circular_arc.end) - c;
 
                 let id_px = point.id_x();
                 let id_py = point.id_y();
-                let px = current_assignments[layout.index_of(id_px)];
-                let py = current_assignments[layout.index_of(id_py)];
-                let p = V::new(px, py) - c;
+                let p = a.point(*point) - c;
 
                 let r = s.magnitude();
                 let r_e = e.magnitude();
@@ -2036,12 +1943,12 @@ impl Constraint {
                 let id_ay = circular_arc.start.id_y();
                 let id_bx = circular_arc.end.id_x();
                 let id_by = circular_arc.end.id_y();
-                let cx = current_assignments[layout.index_of(id_cx)];
-                let cy = current_assignments[layout.index_of(id_cy)];
-                let ax = current_assignments[layout.index_of(id_ax)];
-                let ay = current_assignments[layout.index_of(id_ay)];
-                let bx = current_assignments[layout.index_of(id_bx)];
-                let by = current_assignments[layout.index_of(id_by)];
+                let cx = a[id_cx];
+                let cy = a[id_cy];
+                let ax = a[id_ax];
+                let ay = a[id_ay];
+                let bx = a[id_bx];
+                let by = a[id_by];
                 let dx = ax - cx;
                 let dy = ay - cy;
                 let r2 = dx.square() + dy.square();
@@ -2185,18 +2092,9 @@ impl Constraint {
             )
             .jacobian_rows(layout, current_assignments, row0, row1, _row2, degenerate),
             Constraint::PointsAtAngle(p0, p1, p2, expected_angle) => {
-                let p0v = V::new(
-                    current_assignments[layout.index_of(p0.id_x())],
-                    current_assignments[layout.index_of(p0.id_y())],
-                );
-                let p1v = V::new(
-                    current_assignments[layout.index_of(p1.id_x())],
-                    current_assignments[layout.index_of(p1.id_y())],
-                );
-                let p2v = V::new(
-                    current_assignments[layout.index_of(p2.id_x())],
-                    current_assignments[layout.index_of(p2.id_y())],
-                );
+                let p0v = a.point(*p0);
+                let p1v = a.point(*p1);
+                let p2v = a.point(*p2);
 
                 let u = p1v - p0v;
                 let v = p2v - p0v;
@@ -2569,21 +2467,12 @@ impl PartialDerivatives4Points {
 }
 
 fn get_line_ends(
-    current_assignments: &[f64],
+    a: &Assignments<'_>,
     line0: &DatumLineSegment,
     line1: &DatumLineSegment,
-    layout: &Layout,
 ) -> ((V, V), (V, V)) {
-    let p0_x_l0 = current_assignments[layout.index_of(line0.p0.id_x())];
-    let p0_y_l0 = current_assignments[layout.index_of(line0.p0.id_y())];
-    let p1_x_l0 = current_assignments[layout.index_of(line0.p1.id_x())];
-    let p1_y_l0 = current_assignments[layout.index_of(line0.p1.id_y())];
-    let l0 = (V::new(p0_x_l0, p0_y_l0), V::new(p1_x_l0, p1_y_l0));
-    let p0_x_l1 = current_assignments[layout.index_of(line1.p0.id_x())];
-    let p0_y_l1 = current_assignments[layout.index_of(line1.p0.id_y())];
-    let p1_x_l1 = current_assignments[layout.index_of(line1.p1.id_x())];
-    let p1_y_l1 = current_assignments[layout.index_of(line1.p1.id_y())];
-    let l1 = (V::new(p0_x_l1, p0_y_l1), V::new(p1_x_l1, p1_y_l1));
+    let l0 = (a.point(line0.p0), a.point(line0.p1));
+    let l1 = (a.point(line1.p0), a.point(line1.p1));
     (l0, l1)
 }
 
@@ -2607,16 +2496,10 @@ fn classify_point_arc_coincident(s: V, e: V, p: V) -> PointArcCoincidentPart {
 
 /// If we represent the line in the form (Ax + By + C),
 /// this returns (A, B, C).
-fn equation_of_line(
-    current_assignments: &[f64],
-    line: &DatumLineSegment,
-    layout: &Layout,
-) -> (f64, f64, f64) {
-    let px = current_assignments[layout.index_of(line.p0.id_x())];
-    let py = current_assignments[layout.index_of(line.p0.id_y())];
-    let qx = current_assignments[layout.index_of(line.p1.id_x())];
-    let qy = current_assignments[layout.index_of(line.p1.id_y())];
-    inner_equation_of_line(px, py, qx, qy)
+fn equation_of_line(a: &Assignments<'_>, line: &DatumLineSegment) -> (f64, f64, f64) {
+    let p = a.point(line.p0);
+    let q = a.point(line.p1);
+    inner_equation_of_line(p.x, p.y, q.x, q.y)
 }
 
 /// Given two points on the line P and Q,
