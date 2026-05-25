@@ -1282,14 +1282,10 @@ impl Constraint {
                 let df_dv = rot.apply(u).perp_ccw();
 
                 let pds = PartialDerivatives4Points {
-                    x0: -df_du.x,
-                    y0: -df_du.y,
-                    x1: df_du.x,
-                    y1: df_du.y,
-                    x2: -df_dv.x,
-                    y2: -df_dv.y,
-                    x3: df_dv.x,
-                    y3: df_dv.y,
+                    d0: -df_du,
+                    d1: df_du,
+                    d2: -df_dv,
+                    d3: df_dv,
                 };
 
                 let jvars = pds.jvars(line0, line1);
@@ -1309,19 +1305,13 @@ impl Constraint {
                 }
 
                 // Calculate derivatives.
-                let inv_len0_x = (l0.0.x - l0.1.x) / len0;
-                let inv_len0_y = (l0.0.y - l0.1.y) / len0;
-                let inv_len1_x = (-l1.0.x + l1.1.x) / len1;
-                let inv_len1_y = (-l1.0.y + l1.1.y) / len1;
+                let inv_len0 = (l0.0 - l0.1) * len0.recip();
+                let inv_len1 = (l1.1 - l1.0) * len1.recip();
                 let pds = PartialDerivatives4Points {
-                    x0: inv_len0_x,
-                    y0: inv_len0_y,
-                    x1: -inv_len0_x,
-                    y1: -inv_len0_y,
-                    x2: inv_len1_x,
-                    y2: inv_len1_y,
-                    x3: -inv_len1_x,
-                    y3: -inv_len1_y,
+                    d0: inv_len0,
+                    d1: -inv_len0,
+                    d2: inv_len1,
+                    d3: -inv_len1,
                 };
                 let jvars = pds.jvars(line0, line1);
                 row0.extend(jvars.as_slice());
@@ -1425,37 +1415,34 @@ impl Constraint {
                 // TODO: Handle degenerate case here
 
                 // Calculate derivative values for distance constraint.
-                let dx_start = (start.x - c.x) * 2.0;
-                let dy_start = (start.y - c.y) * 2.0;
-                let dx_end = (end.x - c.x) * -2.0;
-                let dy_end = (end.y - c.y) * -2.0;
-                let dx_c = (end.x - start.x) * 2.0;
-                let dy_c = (end.y - start.y) * 2.0;
+                let d_start = (start - c) * 2.0;
+                let d_end = (end - c) * -2.0;
+                let d_c = (end - start) * 2.0;
 
                 row0.extend([
                     JacobianVar {
                         id: arc.start.id_x(),
-                        partial_derivative: dx_start,
+                        partial_derivative: d_start.x,
                     },
                     JacobianVar {
                         id: arc.start.id_y(),
-                        partial_derivative: dy_start,
+                        partial_derivative: d_start.y,
                     },
                     JacobianVar {
                         id: arc.end.id_x(),
-                        partial_derivative: dx_end,
+                        partial_derivative: d_end.x,
                     },
                     JacobianVar {
                         id: arc.end.id_y(),
-                        partial_derivative: dy_end,
+                        partial_derivative: d_end.y,
                     },
                     JacobianVar {
                         id: arc.center.id_x(),
-                        partial_derivative: dx_c,
+                        partial_derivative: d_c.x,
                     },
                     JacobianVar {
                         id: arc.center.id_y(),
-                        partial_derivative: dy_c,
+                        partial_derivative: d_c.y,
                     },
                 ]);
             }
@@ -2382,14 +2369,10 @@ fn pds_for_point_line(
 /// in a line segment.
 #[derive(Debug)]
 struct PartialDerivatives4Points {
-    x0: f64,
-    y0: f64,
-    x1: f64,
-    y1: f64,
-    x2: f64,
-    y2: f64,
-    x3: f64,
-    y3: f64,
+    d0: V,
+    d1: V,
+    d2: V,
+    d3: V,
 }
 
 impl PartialDerivatives4Points {
@@ -2397,35 +2380,35 @@ impl PartialDerivatives4Points {
         [
             JacobianVar {
                 id: line0.p0.id_x(),
-                partial_derivative: self.x0,
+                partial_derivative: self.d0.x,
             },
             JacobianVar {
                 id: line0.p0.id_y(),
-                partial_derivative: self.y0,
+                partial_derivative: self.d0.y,
             },
             JacobianVar {
                 id: line0.p1.id_x(),
-                partial_derivative: self.x1,
+                partial_derivative: self.d1.x,
             },
             JacobianVar {
                 id: line0.p1.id_y(),
-                partial_derivative: self.y1,
+                partial_derivative: self.d1.y,
             },
             JacobianVar {
                 id: line1.p0.id_x(),
-                partial_derivative: self.x2,
+                partial_derivative: self.d2.x,
             },
             JacobianVar {
                 id: line1.p0.id_y(),
-                partial_derivative: self.y2,
+                partial_derivative: self.d2.y,
             },
             JacobianVar {
                 id: line1.p1.id_x(),
-                partial_derivative: self.x3,
+                partial_derivative: self.d3.x,
             },
             JacobianVar {
                 id: line1.p1.id_y(),
-                partial_derivative: self.y3,
+                partial_derivative: self.d3.y,
             },
         ]
     }

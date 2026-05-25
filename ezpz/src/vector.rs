@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub(crate) struct V {
     pub x: f64,
     pub y: f64,
@@ -92,6 +92,17 @@ impl std::ops::Mul<f64> for V {
         Self {
             x: self.x * scale,
             y: self.y * scale,
+        }
+    }
+}
+
+impl std::ops::Neg for V {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            x: -self.x,
+            y: -self.y,
         }
     }
 }
