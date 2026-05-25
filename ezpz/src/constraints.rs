@@ -582,14 +582,12 @@ impl Constraint {
             Constraint::Distance(p0, p1, expected_distance) => {
                 let p0 = a.point(*p0);
                 let p1 = a.point(*p1);
-                let actual_distance = p0.euclidean_distance(p1);
-                *residual0 = actual_distance - expected_distance;
+                *residual0 = p0.euclidean_distance(p1) - expected_distance;
             }
             Constraint::DistanceVar(p, q, d) => {
                 let p = a.point(*p);
                 let q = a.point(*q);
-                let d = a[d.id];
-                *residual0 = -d + (p - q).magnitude();
+                *residual0 = -a[d.id] + (p - q).magnitude();
             }
             Constraint::VerticalDistance(p0, p1, expected_distance) => {
                 let p0 = a.point(*p0);
@@ -615,8 +613,7 @@ impl Constraint {
                 *residual0 = p0.y - p1.y;
             }
             Constraint::Fixed(id, expected) => {
-                let actual = a[*id];
-                *residual0 = actual - expected;
+                *residual0 = a[*id] - expected;
             }
             Constraint::ScalarEqual(x, y) => {
                 // Residual equation R: x-y=0
@@ -641,14 +638,11 @@ impl Constraint {
                 *residual1 = p0.y - p1.y;
             }
             Constraint::CircleRadius(circle, expected_radius) => {
-                let actual_radius = a[circle.radius.id];
-                *residual0 = actual_radius - *expected_radius;
+                *residual0 = a[circle.radius.id] - *expected_radius;
             }
             Constraint::LinesEqualLength(line0, line1) => {
                 let (l0, l1) = get_line_ends(&a, line0, line1);
-                let len0 = l0.0.euclidean_distance(l0.1);
-                let len1 = l1.0.euclidean_distance(l1.1);
-                *residual0 = len0 - len1;
+                *residual0 = l0.0.euclidean_distance(l0.1) - l1.0.euclidean_distance(l1.1);
             }
             Constraint::ArcRadius(arc, radius) => {
                 // This is really just equivalent to 2 constraints,
@@ -681,10 +675,7 @@ impl Constraint {
                 // For numerical stability and simpler derivatives, we compare the squared
                 // distances. The residual is zero if the distances are equal.
                 // R = distance(center, start)² - distance(center, end)²
-                let dist0_sq = (start - c).magnitude_squared();
-                let dist1_sq = (end - c).magnitude_squared();
-
-                *residual0 = dist0_sq - dist1_sq;
+                *residual0 = (start - c).magnitude_squared() - (end - c).magnitude_squared();
             }
             Constraint::Midpoint(line, point) => {
                 let p = a.point(line.p0);
@@ -712,17 +703,14 @@ impl Constraint {
 
                 // The above equation is a division, so make sure not to divide by zero.
                 let denominator = libm::hypot(a_coeff, b);
-                let is_invalid = denominator < EPSILON;
-                if is_invalid {
+                if denominator < EPSILON {
                     *residual0 = 0.0;
                     *degenerate = true;
                     return;
                 }
-                let actual_distance = (a_coeff * p.x + b * p.y + c) / denominator;
 
                 // Residual is then easy to calculate, it's just the gap between actual and target.
-                let residual = actual_distance - target_distance;
-                *residual0 = residual;
+                *residual0 = (a_coeff * p.x + b * p.y + c) / denominator - target_distance;
             }
             Constraint::VerticalPointLineDistance(point, line, desired_distance) => {
                 // See notebook:
@@ -740,8 +728,7 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let residual = (a_pt.y - p.y - desired_distance) * d.x - d.y * (a_pt.x - p.x);
-                *residual0 = residual;
+                *residual0 = (a_pt.y - p.y - desired_distance) * d.x - d.y * (a_pt.x - p.x);
             }
             Constraint::HorizontalPointLineDistance(point, line, d_distance) => {
                 // See notebook:
@@ -759,9 +746,8 @@ impl Constraint {
                     *degenerate = true;
                     return;
                 }
-                let residual =
+                *residual0 =
                     a_pt.x - d_distance - p.x - (a_pt.y - p.y) * (-p.x + q.x) / (-p.y + q.y);
-                *residual0 = residual;
             }
             Constraint::Symmetric(line, point_a, point_b) => {
                 // Equation: reflect(a - p, q - p) - b + p
@@ -1550,12 +1536,6 @@ impl Constraint {
             Constraint::VerticalPointLineDistance(point, line, _distance) => {
                 // See notebook:
                 // https://github.com/KittyCAD/ezpz-sympy/blob/main/main.py
-                let id_ax = point.id_x();
-                let id_ay = point.id_y();
-                let id_px = line.p0.id_x();
-                let id_py = line.p0.id_y();
-                let id_qx = line.p1.id_x();
-                let id_qy = line.p1.id_y();
                 let a_pt = a.point(*point);
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
@@ -1575,27 +1555,27 @@ impl Constraint {
                 let dqy = -(a_pt.x - p.x);
                 row0.extend([
                     JacobianVar {
-                        id: id_ax,
+                        id: point.id_x(),
                         partial_derivative: dax,
                     },
                     JacobianVar {
-                        id: id_ay,
+                        id: point.id_y(),
                         partial_derivative: day,
                     },
                     JacobianVar {
-                        id: id_px,
+                        id: line.p0.id_x(),
                         partial_derivative: dpx,
                     },
                     JacobianVar {
-                        id: id_py,
+                        id: line.p0.id_y(),
                         partial_derivative: dpy,
                     },
                     JacobianVar {
-                        id: id_qx,
+                        id: line.p1.id_x(),
                         partial_derivative: dqx,
                     },
                     JacobianVar {
-                        id: id_qy,
+                        id: line.p1.id_y(),
                         partial_derivative: dqy,
                     },
                 ]);
@@ -1603,12 +1583,6 @@ impl Constraint {
             Constraint::HorizontalPointLineDistance(point, line, _distance) => {
                 // See notebook:
                 // https://github.com/KittyCAD/ezpz-sympy/blob/main/main.py
-                let id_ax = point.id_x();
-                let id_ay = point.id_y();
-                let id_px = line.p0.id_x();
-                let id_py = line.p0.id_y();
-                let id_qx = line.p1.id_x();
-                let id_qy = line.p1.id_y();
                 let a_pt = a.point(*point);
                 let p = a.point(line.p0);
                 let q = a.point(line.p1);
@@ -1626,27 +1600,27 @@ impl Constraint {
                 let day = (-p.x + q.x) / (p.y - q.y);
                 row0.extend([
                     JacobianVar {
-                        id: id_ax,
+                        id: point.id_x(),
                         partial_derivative: dax,
                     },
                     JacobianVar {
-                        id: id_ay,
+                        id: point.id_y(),
                         partial_derivative: day,
                     },
                     JacobianVar {
-                        id: id_px,
+                        id: line.p0.id_x(),
                         partial_derivative: dpx,
                     },
                     JacobianVar {
-                        id: id_py,
+                        id: line.p0.id_y(),
                         partial_derivative: dpy,
                     },
                     JacobianVar {
-                        id: id_qx,
+                        id: line.p1.id_x(),
                         partial_derivative: dqx,
                     },
                     JacobianVar {
-                        id: id_qy,
+                        id: line.p1.id_y(),
                         partial_derivative: dqy,
                     },
                 ]);
@@ -1923,13 +1897,18 @@ impl Constraint {
                     },
                 ]);
             }
-            Constraint::ArcLength(circular_arc, d) => {
+            Constraint::ArcLength(circular_arc, dist) => {
                 // First, get all the variables.
-                let a = a.point(circular_arc.start);
-                let b = a.point(circular_arc.end);
-                let c = a.point(circular_arc.center);
-                let d = a - c;
-                let r2 = d.magnitude_squared();
+                let id_cx = circular_arc.center.id_x();
+                let id_cy = circular_arc.center.id_y();
+                let id_ax = circular_arc.start.id_x();
+                let id_ay = circular_arc.start.id_y();
+                let id_bx = circular_arc.end.id_x();
+                let id_by = circular_arc.end.id_y();
+                let start = a.point(circular_arc.start);
+                let end = a.point(circular_arc.end);
+                let center = a.point(circular_arc.center);
+                let r2 = (start - center).magnitude_squared();
                 if r2 < EPSILON {
                     *degenerate = true;
                     return;
@@ -1944,35 +1923,39 @@ impl Constraint {
                 let r2_pow_5_2 = r2_sq * r2_sqrt; // r2^(5/2)
                 let r2_pow_7_2 = r2_cubed * r2_sqrt; // r2^(7/2)
                 let r2_pow_9_2 = r2_sq * r2_sq * r2_sqrt; // r2^(9/2)
-                let r0dax = ((b.x - c.x) * r2_pow_7_2
+                let r0dax = ((end.x - center.x) * r2_pow_7_2
                     - 2.0
-                        * (a.x - c.x)
-                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
+                        * (start.x - center.x)
+                        * ((start.x - center.x) * (end.x - center.x)
+                            + (start.y - center.y) * (end.y - center.y))
                         * r2_pow_5_2
-                    - d * (a.x - c.x) * r2_cubed * libm::sin(d / r2_sqrt))
+                    - dist * (start.x - center.x) * r2_cubed * libm::sin(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r0day = ((b.y - c.y) * r2_pow_7_2
+                let r0day = ((end.y - center.y) * r2_pow_7_2
                     - 2.0
-                        * (a.y - c.y)
-                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
+                        * (start.y - center.y)
+                        * ((start.x - center.x) * (end.x - center.x)
+                            + (start.y - center.y) * (end.y - center.y))
                         * r2_pow_5_2
-                    - d * (a.y - c.y) * r2_cubed * libm::sin(d / r2_sqrt))
+                    - dist * (start.y - center.y) * r2_cubed * libm::sin(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r0dbx = (a.x - c.x) / r2;
-                let r0dby = (a.y - c.y) / r2;
-                let r0dcx = (r2_pow_7_2 * (-a.x - b.x + 2.0 * c.x)
+                let r0dbx = (start.x - center.x) / r2;
+                let r0dby = (start.y - center.y) / r2;
+                let r0dcx = (r2_pow_7_2 * (-start.x - end.x + 2.0 * center.x)
                     + 2.0
-                        * (a.x - c.x)
-                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
+                        * (start.x - center.x)
+                        * ((start.x - center.x) * (end.x - center.x)
+                            + (start.y - center.y) * (end.y - center.y))
                         * r2_pow_5_2
-                    + d * (a.x - c.x) * r2_cubed * libm::sin(d / r2_sqrt))
+                    + dist * (start.x - center.x) * r2_cubed * libm::sin(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r0dcy = (r2_pow_7_2 * (-a.y - b.y + 2.0 * c.y)
+                let r0dcy = (r2_pow_7_2 * (-start.y - end.y + 2.0 * center.y)
                     + 2.0
-                        * (a.y - c.y)
-                        * ((a.x - c.x) * (b.x - c.x) + (a.y - c.y) * (b.y - c.y))
+                        * (start.y - center.y)
+                        * ((start.x - center.x) * (end.x - center.x)
+                            + (start.y - center.y) * (end.y - center.y))
                         * r2_pow_5_2
-                    + d * (a.y - c.y) * r2_cubed * libm::sin(d / r2_sqrt))
+                    + dist * (start.y - center.y) * r2_cubed * libm::sin(dist / r2_sqrt))
                     / r2_pow_9_2;
                 row0.extend([
                     JacobianVar {
@@ -2000,35 +1983,39 @@ impl Constraint {
                         partial_derivative: r0dcy,
                     },
                 ]);
-                let r1dax = ((b.y - c.y) * r2_pow_7_2
+                let r1dax = ((end.y - center.y) * r2_pow_7_2
                     - 2.0
-                        * (a.x - c.x)
-                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
+                        * (start.x - center.x)
+                        * ((start.x - center.x) * (end.y - center.y)
+                            - (start.y - center.y) * (end.x - center.x))
                         * r2_pow_5_2
-                    + d * (a.x - c.x) * r2_cubed * libm::cos(d / r2_sqrt))
+                    + dist * (start.x - center.x) * r2_cubed * libm::cos(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r1day = ((-b.x + c.x) * r2_pow_7_2
+                let r1day = ((-end.x + center.x) * r2_pow_7_2
                     - 2.0
-                        * (a.y - c.y)
-                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
+                        * (start.y - center.y)
+                        * ((start.x - center.x) * (end.y - center.y)
+                            - (start.y - center.y) * (end.x - center.x))
                         * r2_pow_5_2
-                    + d * (a.y - c.y) * r2_cubed * libm::cos(d / r2_sqrt))
+                    + dist * (start.y - center.y) * r2_cubed * libm::cos(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r1dbx = (-a.y + c.y) / r2;
-                let r1dby = (a.x - c.x) / r2;
-                let r1dcx = ((a.y - b.y) * r2_pow_7_2
+                let r1dbx = (-start.y + center.y) / r2;
+                let r1dby = (start.x - center.x) / r2;
+                let r1dcx = ((start.y - end.y) * r2_pow_7_2
                     + 2.0
-                        * (a.x - c.x)
-                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
+                        * (start.x - center.x)
+                        * ((start.x - center.x) * (end.y - center.y)
+                            - (start.y - center.y) * (end.x - center.x))
                         * r2_pow_5_2
-                    - d * (a.x - c.x) * r2_cubed * libm::cos(d / r2_sqrt))
+                    - dist * (start.x - center.x) * r2_cubed * libm::cos(dist / r2_sqrt))
                     / r2_pow_9_2;
-                let r1dcy = ((-a.x + b.x) * r2_pow_7_2
+                let r1dcy = ((-start.x + end.x) * r2_pow_7_2
                     + 2.0
-                        * (a.y - c.y)
-                        * ((a.x - c.x) * (b.y - c.y) - (a.y - c.y) * (b.x - c.x))
+                        * (start.y - center.y)
+                        * ((start.x - center.x) * (end.y - center.y)
+                            - (start.y - center.y) * (end.x - center.x))
                         * r2_pow_5_2
-                    - d * (a.y - c.y) * r2_cubed * libm::cos(d / r2_sqrt))
+                    - dist * (start.y - center.y) * r2_cubed * libm::cos(dist / r2_sqrt))
                     / r2_pow_9_2;
                 row1.extend([
                     JacobianVar {
